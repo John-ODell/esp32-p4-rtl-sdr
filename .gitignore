@@ -1,0 +1,12 @@
+build*/
+managed_components/
+sdkconfig
+sdkconfig.old
+dist/
+.DS_Store
+tools/preview/preview
+tools/adsb_test/adsb_test
+__pycache__/
+# local skill links (absolute paths on the maintainer's machine)
+.claude/skills/
+.agents/skills/
