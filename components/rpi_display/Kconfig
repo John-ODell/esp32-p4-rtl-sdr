@@ -1,0 +1,45 @@
+menu "MPI3501 3.5in RPi display (ILI9486 + XPT2046)"
+
+    comment "Defaults: panel plugged straight onto the Waveshare ESP32-P4-Module-DEV-KIT 40-pin header"
+
+    config RPI_LCD_PIN_SCK
+        int "SCK GPIO (panel pin 23)"
+        default 0
+    config RPI_LCD_PIN_MOSI
+        int "MOSI GPIO (panel pin 19)"
+        default 3
+    config RPI_LCD_PIN_MISO
+        int "MISO GPIO, touch data out (panel pin 21)"
+        default 2
+    config RPI_LCD_PIN_DC
+        int "LCD D/C (RS) GPIO (panel pin 18)"
+        default 4
+    config RPI_LCD_PIN_RST
+        int "LCD reset GPIO (panel pin 22)"
+        default 1
+    config RPI_LCD_PIN_CS
+        int "LCD CS GPIO (panel pin 24)"
+        default 36
+    config RPI_LCD_PIN_TP_CS
+        int "Touch CS GPIO (panel pin 26)"
+        default 32
+    config RPI_LCD_PIN_TP_IRQ
+        int "Touch IRQ (PENIRQ) GPIO (panel pin 11)"
+        default 21
+
+    config RPI_LCD_SPI_MHZ
+        int "LCD SPI clock, MHz"
+        range 1 40
+        default 32
+        help
+            The panel is rated 32 MHz. On the ESP32-P4 the SPI clock divides 80 MHz, so 32 is
+            delivered as 26.67 MHz (about 10.7 full frames per second). Use 16 if you see corruption
+            on long wires.
+
+    config RPI_LCD_ROTATE_180
+        bool "Rotate 180 degrees (landscape, upside down)"
+        default n
+        help
+            Recalibrate touch after changing this (hold the screen at boot in the demo).
+
+endmenu
