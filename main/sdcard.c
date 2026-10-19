@@ -23,10 +23,8 @@ static sd_pwr_ctrl_handle_t s_pwr;
 
 static void lock(void)
 {
-    static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
-    taskENTER_CRITICAL(&mux);
-    if (!s_lock) s_lock = xSemaphoreCreateMutex();
-    taskEXIT_CRITICAL(&mux);
+    static StaticSemaphore_t buf;
+    if (!s_lock) s_lock = xSemaphoreCreateMutexStatic(&buf);   /* first call is from the UI task */
     xSemaphoreTake(s_lock, portMAX_DELAY);
 }
 

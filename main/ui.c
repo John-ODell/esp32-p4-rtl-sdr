@@ -245,22 +245,22 @@ static void poll_touch(const touch_cal_t *cal)
 static double uptime_s(void) { return esp_timer_get_time() / 1e6; }
 
 /* One row per aircraft heard since its last row, at most every 5 s each. */
-#define LOG_SLOTS (2 * ADSB_MAX_AC)
-static struct { uint32_t icao; int64_t at; } s_logged[LOG_SLOTS];   /* adsb clock; cleared per entry */
+enum { LOG_EVERY_MS = 5000, LOG_SLOTS = 2 * ADSB_MAX_AC };
+typedef struct { uint32_t icao; int64_t at; } logged_t;
+static logged_t s_logged[LOG_SLOTS];          /* last row per aircraft, adsb clock; cleared per entry */
 
 static void log_aircraft(void)
 {
-    enum { EVERY_MS = 5000, SLOTS = LOG_SLOTS };
-    typeof(s_logged[0]) *done = s_logged;
+    logged_t *done = s_logged;
     const int64_t now = adsb_now_ms();
     for (int i = 0; i < adsb_count(); i++) {
         const adsb_ac_t *a = adsb_get(i);
         int k = -1, old = 0;
-        for (int j = 0; j < SLOTS; j++) {
+        for (int j = 0; j < LOG_SLOTS; j++) {
             if (done[j].icao == a->icao && done[j].at) { k = j; break; }
             if (done[j].at < done[old].at) old = j;
         }
-        if (k >= 0 && (a->seen_ms <= done[k].at || now - done[k].at < EVERY_MS)) continue;
+        if (k >= 0 && (a->seen_ms <= done[k].at || now - done[k].at < LOG_EVERY_MS)) continue;
         if (k < 0) { k = old; done[k].icao = a->icao; }
         done[k].at = now;
         char fl[24] = "", alt[12] = "", spd[12] = "", trk[12] = "", vr[12] = "", lat[16] = "", lon[16] = "";
