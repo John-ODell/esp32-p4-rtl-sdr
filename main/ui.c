@@ -3,7 +3,7 @@
  * Tap the spectrum or waterfall to tune there. Hold a step button to repeat. Tap the frequency
  * readout for the next look (or pick one on the LOOK page). Tap MENU (top right, gain shown under it) for Controls (gain, dB range, zoom, filter,
  * bands). Touch is sampled three times a frame; menu keys and tuning act when the finger lifts. Everything is kept in NVS namespace "sdr": freq, gaint (tenths of a dB,
- * -1 = AGC), theme, rauto, ref, rspan, zoom, bw. */
+ * -1 = AGC), theme, rauto, ref, rspan, zoom, bw; logn is the SD log session (sdlog.c). */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +28,7 @@
 #include "adsb_view.h"
 #include "amap.h"
 #include "sdcard.h"
+#include "sdlog.h"
 #include "scan_view.h"
 #include "radio_scan.h"
 #include "ui.h"
@@ -241,6 +242,44 @@ static void poll_touch(const touch_cal_t *cal)
 
 /* -------------------------------------------------------------------------- ADS-B -- */
 
+static double uptime_s(void) { return esp_timer_get_time() / 1e6; }
+
+/* One row per aircraft heard since its last row, at most every 5 s each. */
+enum { LOG_EVERY_MS = 5000, LOG_SLOTS = 2 * ADSB_MAX_AC };
+typedef struct { uint32_t icao; int64_t at; } logged_t;
+static logged_t s_logged[LOG_SLOTS];          /* last row per aircraft, adsb clock; cleared per entry */
+
+static void log_aircraft(void)
+{
+    logged_t *done = s_logged;
+    const int64_t now = adsb_now_ms();
+    for (int i = 0; i < adsb_count(); i++) {
+        const adsb_ac_t *a = adsb_get(i);
+        int k = -1, old = 0;
+        for (int j = 0; j < LOG_SLOTS; j++) {
+            if (done[j].icao == a->icao && done[j].at) { k = j; break; }
+            if (done[j].at < done[old].at) old = j;
+        }
+        if (k >= 0 && (a->seen_ms <= done[k].at || now - done[k].at < LOG_EVERY_MS)) continue;
+        if (k < 0) { k = old; done[k].icao = a->icao; }
+        done[k].at = now;
+        char fl[24] = "", alt[12] = "", spd[12] = "", trk[12] = "", vr[12] = "", lat[16] = "", lon[16] = "";
+        if (a->flight[0]) sdlog_str(fl, sizeof fl, a->flight);
+        if (a->alt_ft != INT32_MIN) snprintf(alt, sizeof alt, "%d", a->alt_ft);
+        if (a->speed_kt >= 0) {
+            snprintf(spd, sizeof spd, "%d", a->speed_kt);
+            snprintf(trk, sizeof trk, "%d", a->track_deg);
+            snprintf(vr, sizeof vr, "%d", a->vrate_fpm);
+        }
+        if (a->has_pos) {
+            snprintf(lat, sizeof lat, "%.5f", a->lat);
+            snprintf(lon, sizeof lon, "%.5f", a->lon);
+        }
+        sdlog_row("%.1f,%06" PRIX32 ",%s,%s,%s,%s,%s,%s,%s,%" PRIu32, uptime_s(), a->icao, fl, alt, spd, trk,
+                  vr, lat, lon, a->msgs);
+    }
+}
+
 /* 1090 MHz at 2 MS/s, max gain, every sample through the decoder. Returns when EXIT is
  * tapped or the stream dies; the receiver settings are restored either way. */
 static void adsb_mode(const touch_cal_t *cal)
@@ -253,6 +292,8 @@ static void adsb_mode(const touch_cal_t *cal)
     const int gain = sdr_gain_index();
     ESP_LOGI(TAG, "ADS-B mode");
     sdr_stop();
+    memset(s_logged, 0, sizeof s_logged);   /* adsb_init restarts the decoder's clock */
+    sdlog_begin("ADSB", "t_s,icao,callsign,alt_ft,speed_kt,track_deg,vrate_fpm,lat,lon,msgs");
     static uint8_t *map;                       /* MAP.BIN, kept in PSRAM once read */
     if (!map) {                                /* card read while the USB transfers are freed */
         size_t len;
@@ -277,7 +318,7 @@ static void adsb_mode(const touch_cal_t *cal)
     s_adsb = true;
     s_av_action = AV_NONE;
 
-    adsb_view_info_t info = {.gain_tenths = sdr_gain_tenths(sdr_gain_index())};
+    adsb_view_info_t info = {.gain_tenths = sdr_gain_tenths(sdr_gain_index()), .rec = sdlog_state()};
     if (amap_info()) {                         /* the map's centre is home */
         info.have_home = true;
         info.home_lat = amap_info()->lat;
@@ -312,6 +353,8 @@ static void adsb_mode(const touch_cal_t *cal)
                         info.home_lon = adsb_get(i)->lon;
                         break;
                     }
+            log_aircraft();
+            info.rec = sdlog_state();
             adsb_view_draw(&info);
         }
         if (now - t_log > 5000000) {
@@ -333,6 +376,7 @@ static void adsb_mode(const touch_cal_t *cal)
     s_adsb = false;
     ESP_LOGI(TAG, "leaving ADS-B mode");
     sdr_stop();
+    sdlog_end();
     sdr_set_sample_rate(SDR_SAMPLE_RATE);
     sdr_set_freq(freq);
     sdr_set_gain_index(gain);
@@ -344,6 +388,33 @@ static void adsb_mode(const touch_cal_t *cal)
 }
 
 /* ----------------------------------------------------------------- Wi-Fi / BLE -- */
+
+static void mac_str(char *out, const uint8_t *m)
+{
+    sprintf(out, "%02X:%02X:%02X:%02X:%02X:%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
+}
+
+/* Wi-Fi: every network heard in the sweep that just finished. BLE: every device heard in the
+ * last 5 s. since_ms is the scanner clock (ms since boot) of the previous batch. */
+static void log_scan(int kind, const scan_view_info_t *in, int64_t since_ms)
+{
+    char mac[18], a[72], b[40];
+    if (kind == SV_WIFI)
+        for (int i = 0; i < in->nap; i++) {
+            const scan_ap_t *p = &in->ap[i];
+            if (p->seen_ms <= since_ms) continue;
+            mac_str(mac, p->bssid);
+            sdlog_row("%.1f,%s,%s,%d,%d,%s", uptime_s(), mac, sdlog_str(a, sizeof a, p->ssid), p->ch, p->rssi, p->sec);
+        }
+    else
+        for (int i = 0; i < in->nble; i++) {
+            const scan_ble_t *p = &in->ble[i];
+            if (p->seen_ms <= since_ms) continue;
+            mac_str(mac, p->addr);
+            sdlog_row("%.1f,%s,%s,%d,%s,%s,%d,%" PRIu32, uptime_s(), mac, p->random ? "random" : "public", p->rssi,
+                      sdlog_str(a, sizeof a, p->name), sdlog_str(b, sizeof b, p->kind), p->connectable, p->count);
+        }
+}
 
 /* A scanner on the module's ESP32-C6. The RTL-SDR stream is stopped first: that frees the
  * internal RAM of the USB transfers, which the Wi-Fi buffers need; the scanner frees its own
@@ -367,7 +438,12 @@ static void scan_mode(const touch_cal_t *cal, int kind)
     const char *why = NULL;
     bool ok = radio_scan_start(kind, &why);
     info.status = ok ? NULL : why;
-    int64_t t_draw = 0, t_log = esp_timer_get_time();
+    if (ok) sdlog_begin(kind == SV_WIFI ? "WIFI" : "BLE",
+                        kind == SV_WIFI ? "t_s,bssid,ssid,channel,rssi_dbm,security"
+                                        : "t_s,address,address_type,rssi_dbm,name,maker_or_service,connectable,adverts");
+    info.rec = sdlog_state();
+    int64_t t_draw = 0, t_log = esp_timer_get_time(), logged_ms = 0;
+    int logged_sweeps = 0;
     while (s_sv_action != SV_EXIT) {
         int64_t now = esp_timer_get_time();
         if (ok) radio_scan_poll();
@@ -379,6 +455,12 @@ static void scan_mode(const touch_cal_t *cal, int kind)
             info.now_ms = now / 1000;
             if (ok && kind == SV_WIFI) info.nap = radio_scan_get_ap(ap, SCAN_MAX_AP, &info.scans);
             if (ok && kind == SV_BLE) info.nble = radio_scan_get_ble(ble, SCAN_MAX_BLE);
+            if (kind == SV_WIFI ? info.scans != logged_sweeps : info.now_ms - logged_ms >= 5000) {
+                log_scan(kind, &info, logged_ms);
+                logged_sweeps = info.scans;
+                logged_ms = info.now_ms;
+            }
+            info.rec = sdlog_state();
             scan_view_draw(&info);
         }
         if (now - t_log > 10000000) {
@@ -388,6 +470,7 @@ static void scan_mode(const touch_cal_t *cal, int kind)
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
+    sdlog_end();
     if (ok) radio_scan_stop();
     s_scan = false;
     ESP_LOGI(TAG, "leaving the %s scanner", name);

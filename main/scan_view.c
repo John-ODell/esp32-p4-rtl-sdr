@@ -3,6 +3,7 @@
 #include <string.h>
 #include "rpi_lcd.h"
 #include "rpi_canvas.h"
+#include "rpi_text.h"
 #include "pins.h"
 #include "view.h"
 #include "scan_view.h"
@@ -62,6 +63,18 @@ static void draw_key(const rpi_canvas_t *c, const skey_t *k, bool hot)
     rpi_cv_text(c, k->x + (k->w - rpi_cv_text_w(k->label, 2)) / 2, y + (h - 32) / 2, k->label, K.key_txt, 2);
 }
 
+/* SD log state after the second stats line: a red dot and REC (just the dot if REC won't
+ * fit), or SD ERR */
+static void rec_mark(const rpi_canvas_t *c, int x, int y, int maxx, int rec)
+{
+    if (!rec) return;
+    const char *t = rec == 1 ? "REC" : "SD ERR";
+    const uint16_t red = RGB565(230, 40, 40);
+    if (x + 8 > maxx) return;
+    rpi_cv_rrect(c, x, y + 4, 8, 8, 2, red);
+    if (x + 11 + rpi_cv_text_w(t, 1) <= maxx) rpi_cv_text(c, x + 11, y, t, rec == 1 ? K.txt : red, 1);
+}
+
 static void draw_bar(const rpi_canvas_t *c, const scan_view_info_t *in)
 {
     rpi_cv_fill(c, 0, 0, LCD_W, BAR_H, K.btn == K.bg ? K.bg : rpi_mix565(K.bg, K.btn, 90));
@@ -76,7 +89,12 @@ static void draw_bar(const rpi_canvas_t *c, const scan_view_info_t *in)
     const skey_t *k = keys(&nk);
     int x = s_kind == SV_BLE ? 60 : 100, maxx = k[0].x - 6;
     if (x + rpi_cv_text_w(a, 1) <= maxx) rpi_cv_text(c, x, 6, a, K.txt, 1);
-    if (x + rpi_cv_text_w(b, 1) <= maxx) rpi_cv_text(c, x, 24, b, K.dim, 1);
+    int bx = x;
+    if (x + rpi_cv_text_w(b, 1) <= maxx) {
+        rpi_cv_text(c, x, 24, b, K.dim, 1);
+        bx += rpi_cv_text_w(b, 1) + 6;
+    }
+    rec_mark(c, bx, 24, maxx, in->rec);
     for (int i = 0; i < nk; i++) draw_key(c, &k[i], i == s_hot);
 }
 
