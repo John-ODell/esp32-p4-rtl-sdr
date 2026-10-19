@@ -1,4 +1,4 @@
-# Unreleased
+# 1.1.0 (2026-10-18)
 - CSV logs on the SD card: ADS-B aircraft, Wi-Fi networks and BLE devices go to `LOGS/` while
   each mode is open, with a REC marker in the header.
 - The 5 s serial stats lines report free internal RAM, its low-water mark and the largest DMA block.
