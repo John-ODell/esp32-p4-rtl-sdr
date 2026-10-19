@@ -230,7 +230,7 @@ int main(int argc, char **argv)
         a.seen_ms = -1000 * i;
         adsb_test_add(&a);
     }
-    adsb_view_info_t info = {.msgs_per_s = 212, .gain_tenths = 496, .have_home = true, .home_lat = hlat, .home_lon = hlon};
+    adsb_view_info_t info = {.msgs_per_s = 212, .gain_tenths = 496, .have_home = true, .home_lat = hlat, .home_lon = hlon, .rec = 1};
     for (int t = 0; t < n; t++) {
         view_set_theme(t);
         char path[512];
@@ -284,7 +284,7 @@ int main(int argc, char **argv)
     for (int t = 0; t < n; t++) {
         view_set_theme(t);
         char path[512];
-        scan_view_info_t wi = {.kind = SV_WIFI, .ap = ap, .nap = sizeof ap / sizeof ap[0], .now_ms = 0, .scans = 14};
+        scan_view_info_t wi = {.kind = SV_WIFI, .ap = ap, .nap = sizeof ap / sizeof ap[0], .now_ms = 0, .scans = 14, .rec = 1};
         scan_view_open(SV_WIFI);
         scan_view_draw(&wi);
         snprintf(path, sizeof path, "%s/%s-wifi-list.png", dir, view_theme_name(t));
@@ -294,7 +294,7 @@ int main(int argc, char **argv)
         scan_view_draw(&wi);
         snprintf(path, sizeof path, "%s/%s-wifi-chan.png", dir, view_theme_name(t));
         write_png(path, &fb[0][0], LCD_W, LCD_H);
-        scan_view_info_t bi = {.kind = SV_BLE, .ble = ble, .nble = sizeof ble / sizeof ble[0], .now_ms = 0};
+        scan_view_info_t bi = {.kind = SV_BLE, .ble = ble, .nble = sizeof ble / sizeof ble[0], .now_ms = 0, .rec = 1};
         scan_view_open(SV_BLE);
         scan_view_draw(&bi);
         snprintf(path, sizeof path, "%s/%s-ble.png", dir, view_theme_name(t));

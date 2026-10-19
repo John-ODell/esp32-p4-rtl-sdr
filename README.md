@@ -22,6 +22,8 @@ native ESP-IDF firmware drives the dongle over USB.**
   view showing one hump per network.
 - **BLE scanner**, also on the C6. It lists nearby devices with name, maker or service, address,
   signal and advert count.
+- **Logging to the SD card**: with a card in, ADS-B, Wi-Fi and BLE write what they hear to CSV
+  files you can open in a spreadsheet.
 - **Four looks**: Studio, PortaPack, Phosphor and Vintage.
 - Big touch keys made for a resistive panel. They light up under your finger and fire when you
   lift it. Settings are saved to flash.
@@ -57,7 +59,7 @@ The screenshots come from `tools/preview` with made-up aircraft and neighbours.
 | Waveshare **ESP32-P4-Module-DEV-KIT** | The module carries an ESP32-C6, which runs the Wi-Fi and BLE scanners. |
 | **3.5inch RPi Display** (MPI3501: ILI9486 + XPT2046, four logic chips on the back) | Plugs straight onto the kit's 40-pin header, pin 1 to pin 1. See [Is this my screen?](https://github.com/John-ODell/esp32-p4-3.5-inch-rpi-display#is-this-my-screen) |
 | **RTL-SDR Blog V4** dongle and an antenna | It goes in one of the kit's USB-A ports. Set the **H3 jumper to HOST**. This is the only dongle tested so far. |
-| micro-SD card, FAT32 (optional) | Holds `MAP.BIN` for the ADS-B map. |
+| micro-SD card, FAT32 (optional) | Holds `MAP.BIN` for the ADS-B map, and the CSV logs. |
 
 ## Flash the prebuilt firmware
 
@@ -141,6 +143,27 @@ python3 tools/mapgen/make_map.py --lat 52.31 --lon 4.76 --name SCHIPHOL --radius
 - Copy `MAP.BIN` to the root of a FAT32 card and put the card in the kit's slot.
 - The card is read the first time ADS-B opens, and only then.
 
+## Logs on the SD card
+
+With a FAT32 card in the slot, each mode writes a CSV file to `LOGS/` on the card while it is open.
+The header shows a red dot and **REC** while it records (just the dot where space is short), and
+**SD ERR** if a write fails. Without a card, nothing changes.
+
+| File | One row | Columns |
+|---|---|---|
+| `ADSBnnnn.CSV` | per aircraft, at most every 5 s, when heard since its last row | `t_s, icao, callsign, alt_ft, speed_kt, track_deg, vrate_fpm, lat, lon, msgs` |
+| `WIFInnnn.CSV` | per network heard in each sweep (about every 2 s) | `t_s, bssid, ssid, channel, rssi_dbm, security` |
+| `BLEnnnn.CSV` | per device heard in the last 5 s | `t_s, address, address_type, rssi_dbm, name, maker_or_service, connectable, adverts` |
+
+- `nnnn` is a session number that goes up by one at each power-on. Opening a mode again during
+  the same session adds to its file.
+- `t_s` is seconds since power-on. The kit has no clock, so the files carry no dates, and the card
+  shows them as made in 1980.
+- Fields not heard yet are empty. Text fields are quoted.
+- A busy ADS-B hour is about 2 MB and a Wi-Fi hour about 4 MB.
+- A low-priority task writes the rows and syncs the card every 2 s. Pulling the card loses at
+  most the last 2 s.
+
 ## Build from source
 
 You need ESP-IDF **v5.5** (tested with v5.5.5).
@@ -177,7 +200,8 @@ aircraft and neighbours, and writes a PNG of every screen in every look.
 | `main/view.c`, `main/panel.c` | all receiver and menu drawing, in four looks (no ESP-IDF calls) |
 | `main/ui.c` | receiver loop, touch tracker, saved settings, stream recovery, mode switching |
 | `main/adsb.c`, `main/adsb_view.c` | ADS-B demodulator and decoder; list and map screens |
-| `main/amap.c`, `main/sdcard.c` | SD-card base map (format in `amap.h`); card read into PSRAM |
+| `main/amap.c`, `main/sdcard.c` | SD-card base map (format in `amap.h`); shared card mount |
+| `main/sdlog.c` | CSV logs: PSRAM ring, writer task, per-boot file numbering |
 | `main/radio_scan.c`, `main/scan_view.c` | Wi-Fi and BLE scanning on the C6; their screens |
 | `components/rtlsdr` | librtlsdr (RTL-SDR Blog fork, unmodified) on a small libusb shim over the ESP-IDF USB host |
 | `components/rpi_display` | screen, text, off-screen canvas, touch and calibration (the driver from the screen repo) |
@@ -194,6 +218,9 @@ Core 0 runs the USB host and the IQ stream. Core 1 runs the FFT, drawing and tou
   0 USB errors.
 - Wi-Fi: 29 networks in 5 sweeps of about 2 s each. BLE: 13 devices in 10 s. The receiver comes
   back at 9.8 fps afterwards.
+- SD logging: a 14-minute ADS-B log of 24 aircraft (815 rows) had no gap over 5 s, and the decoder
+  stayed at 22% load with 0 bytes dropped. Wi-Fi logged 88 networks and BLE 40 devices. The
+  receiver came back at 10.1 fps.
 
 ## Limits
 

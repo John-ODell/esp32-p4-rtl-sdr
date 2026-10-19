@@ -17,6 +17,7 @@ typedef struct {
     int gain_tenths;                         /* -1 = AGC */
     bool have_home;
     double home_lat, home_lon;               /* map centre */
+    int rec;                                 /* SD log: 0 off, 1 recording, 2 card error */
 } adsb_view_info_t;
 
 void adsb_view_init(void);

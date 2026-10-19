@@ -43,6 +43,7 @@ typedef struct {
     int64_t now_ms;
     int scans;                               /* Wi-Fi sweeps done */
     const char *status;                      /* shown instead of the list when set (errors, starting) */
+    int rec;                                 /* SD log: 0 off, 1 recording, 2 card error */
 } scan_view_info_t;
 
 void scan_view_init(void);
