@@ -190,6 +190,8 @@ both chip-revision images into `dist/`, along with `SHA256SUMS` and the Workbenc
 `tools/preview` builds the drawing code on a Mac or Linux PC, feeds it fake stations,
 aircraft and neighbours, and writes a PNG of every screen in every look.
 `tools/adsb_test` runs the ADS-B decoder against known messages.
+`tools/capture_log.py PORT SECONDS` resets the kit and prints its serial log. With `--attach` it
+leaves the board running and reattaches if the USB serial port drops out, which suits long runs.
 
 ## Code
 
@@ -222,6 +224,13 @@ Core 0 runs the USB host and the IQ stream. Core 1 runs the FFT, drawing and tou
 - SD logging: a 14-minute ADS-B log of 24 aircraft (815 rows) had no gap over 5 s, and the decoder
   stayed at 22% load with 0 bytes dropped. Wi-Fi logged 88 networks and BLE 40 devices. The
   receiver came back at 10.1 fps.
+- Long run, one boot, card in, logging on: 18 min on the receiver, 3.5 min of Wi-Fi, 6 min of BLE,
+  then 44 min of ADS-B. All 530 ADS-B reports showed 22% decoder load and 0 bytes dropped, with
+  free internal RAM flat at 58 KB. The ADS-B log has 1,221 rows (51 aircraft), and its only long
+  gaps are times when nothing was heard. Every log closed with 0 rows dropped.
+- Internal RAM: 75 KB free on the receiver at boot. The first Wi-Fi or BLE visit costs 11 KB once
+  (the C6 link stays up), leaving 64 KB. Later visits return to the same figure, and the low-water
+  mark held at 43 KB. The receiver and ADS-B lines in the serial log report this every 5 s.
 
 ## Limits
 
@@ -229,7 +238,6 @@ Core 0 runs the USB host and the IQ stream. Core 1 runs the FFT, drawing and tou
 - Tested only with the RTL-SDR Blog V4 and on chip revision v1.0. The rev3 image is built but has
   not been run on hardware.
 - Wi-Fi scanning covers 2.4 GHz only, because the C6 has no 5 GHz radio.
-- The ADS-B decoder's message rate and load have not been measured over a long run yet.
 - The kit's USB-A power is always on, so software cannot power-cycle a hung dongle. Unplug it and
   plug it back in.
 - The `E USBH: Dev 1 EP 0 STALL` lines when the dongle opens come from librtlsdr probing other
