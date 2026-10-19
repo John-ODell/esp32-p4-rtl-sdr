@@ -242,6 +242,15 @@ static void poll_touch(const touch_cal_t *cal)
 
 /* -------------------------------------------------------------------------- ADS-B -- */
 
+/* free internal RAM, its low-water mark, and the largest internal DMA block, in KB: the numbers
+ * the USB transfers and the C6 link compete for */
+static void ram_kb(unsigned *free_kb, unsigned *min_kb, unsigned *dma_kb)
+{
+    *free_kb = heap_caps_get_free_size(MALLOC_CAP_INTERNAL) >> 10;
+    *min_kb = heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL) >> 10;
+    *dma_kb = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) >> 10;
+}
+
 static double uptime_s(void) { return esp_timer_get_time() / 1e6; }
 
 /* One row per aircraft heard since its last row, at most every 5 s each. */
@@ -362,11 +371,13 @@ static void adsb_mode(const touch_cal_t *cal)
             adsb_get_stats(&st);
             double dt = (now - t_log) / 1e6;
             info.msgs_per_s = (st.msgs_ok - ok_last) / dt;
+            unsigned fk, mk, dk;
+            ram_kb(&fk, &mk, &dk);
             ESP_LOGI(TAG, "adsb: %.1f msg/s, %.0f preambles/s, ok %llu fixed %llu bad %llu, %d aircraft, "
-                     "decoder load %.0f%%, dropped %llu B", info.msgs_per_s, (st.preambles - pre_last) / dt,
-                     (unsigned long long)st.msgs_ok, (unsigned long long)st.msgs_fixed,
+                     "decoder load %.0f%%, dropped %llu B, ram %u KB (min %u, dma %u)", info.msgs_per_s,
+                     (st.preambles - pre_last) / dt, (unsigned long long)st.msgs_ok, (unsigned long long)st.msgs_fixed,
                      (unsigned long long)st.msgs_bad, adsb_count(), 100.0 * busy / (now - t_log),
-                     (unsigned long long)dropped);
+                     (unsigned long long)dropped, fk, mk, dk);
             ok_last = st.msgs_ok;
             pre_last = st.preambles;
             busy = 0;
@@ -465,8 +476,11 @@ static void scan_mode(const touch_cal_t *cal, int kind)
         }
         if (now - t_log > 10000000) {
             t_log = now;
-            if (kind == SV_WIFI) ESP_LOGI(TAG, "wifi: %d networks, %d sweeps", info.nap, info.scans);
-            else ESP_LOGI(TAG, "ble: %d devices", info.nble);
+            unsigned fk, mk, dk;
+            ram_kb(&fk, &mk, &dk);
+            if (kind == SV_WIFI) ESP_LOGI(TAG, "wifi: %d networks, %d sweeps, ram %u KB (min %u, dma %u)", info.nap,
+                                          info.scans, fk, mk, dk);
+            else ESP_LOGI(TAG, "ble: %d devices, ram %u KB (min %u, dma %u)", info.nble, fk, mk, dk);
         }
         vTaskDelay(pdMS_TO_TICKS(20));
     }
@@ -565,10 +579,12 @@ void ui_run(const touch_cal_t *cal)
             uint64_t b = sdr_total_bytes();
             rtlsdr_usb_stats_t us;
             rtlsdr_usb_get_stats(&us);
+            unsigned fk, mk, dk;
+            ram_kb(&fk, &mk, &dk);
             ESP_LOGI(TAG, "%.1f fps (dsp %.1f ms, lcd %.1f ms), fft %d, floor %.1f dBFS, IQ %.3f MB/s, "
-                     "usb err %" PRIu32 " backlog max %" PRIu32,
+                     "usb err %" PRIu32 " backlog max %" PRIu32 ", ram %u KB (min %u, dma %u)",
                      nf * 1e6 / (t2 - t_log), t_dsp / 1e3 / nf, t_lcd / 1e3 / nf, n, view_floor(),
-                     (b - b_log) / ((t2 - t_log) / 1e6) / 1e6, us.bulk_errors, us.max_backlog);
+                     (b - b_log) / ((t2 - t_log) / 1e6) / 1e6, us.bulk_errors, us.max_backlog, fk, mk, dk);
             b_log = b;
             frames = 0;
             t_dsp = t_lcd = 0;
