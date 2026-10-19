@@ -160,7 +160,8 @@ The header shows a red dot and **REC** while it records (just the dot where spac
 - `t_s` is seconds since power-on. The kit has no clock, so the files carry no dates, and the card
   shows them as made in 1980.
 - Fields not heard yet are empty. Text fields are quoted.
-- A busy ADS-B hour is about 2 MB and a Wi-Fi hour about 4 MB.
+- Sizes measured on the kit: ADS-B about 0.2 MB an hour with 8 aircraft in view (it grows
+  with traffic), and Wi-Fi about 4 MB an hour with 45 networks in range.
 - A low-priority task writes the rows and syncs the card every 2 s. Pulling the card loses at
   most the last 2 s.
 
