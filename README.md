@@ -73,12 +73,12 @@ The screenshots come from `tools/preview` with made-up aircraft and neighbours.
 
    | Image | Boots on | Status |
    |---|---|---|
-   | `p4-sdr-1.0.0-rev1.bin` | v1.x (early kits) | tested on v1.0 |
-   | `p4-sdr-1.0.0-rev3.bin` | v3.1 and later | built, not tested on hardware |
+   | `p4-sdr-1.1.0-rev1.bin` | v1.x (early kits) | tested on v1.0 |
+   | `p4-sdr-1.1.0-rev3.bin` | v3.1 and later | built, not tested on hardware |
 
 4. Flash it:
    ```bash
-   esptool.py --chip esp32p4 -p PORT -b 921600 write_flash 0x0 p4-sdr-1.0.0-rev1.bin
+   esptool.py --chip esp32p4 -p PORT -b 921600 write_flash 0x0 p4-sdr-1.1.0-rev1.bin
    ```
    `PORT` looks like `/dev/cu.usbmodem…` on macOS, `/dev/ttyACM0` on Linux, or `COM5` on Windows.
    The image is a full flash image, so it clears saved settings and the touch calibration.
