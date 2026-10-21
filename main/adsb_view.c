@@ -17,7 +17,10 @@
 #define BIG_ALLOC(n) calloc(1, (n))
 #endif
 
-#define BAR_H  48
+/* The top bar: title and stats beside the keys, or in portrait above a row of them. */
+#define BAR_H  (LCD_PORTRAIT ? 92 : 48)
+#define KEY_Y  (LCD_PORTRAIT ? 46 : 4)
+#define KEY_H  40
 #define ROW_H  44
 #define NROWS  ((LCD_H - BAR_H - 4) / ROW_H)
 
@@ -50,12 +53,21 @@ static const akey_t *keys(int *n)
     return s_map ? s_keys_map : s_keys_list;
 }
 
-static void draw_key(const rpi_canvas_t *c, const akey_t *k, bool hot)
+/* key i of n: its place in landscape, or an equal share of the portrait key row */
+static void key_x(const akey_t *k, int i, int n, int *x, int *w)
 {
-    int r = K.square ? 0 : 8, y = 4, h = BAR_H - 8;
-    rpi_cv_rrect(c, k->x, y, k->w, h, r, hot ? K.btn_on : K.edge);
-    rpi_cv_rrect(c, k->x + 1, y + 1, k->w - 2, h - 2, r > 1 ? r - 1 : 0, hot ? rpi_mix565(K.btn, K.btn_on, 110) : K.btn);
-    rpi_cv_text(c, k->x + (k->w - rpi_cv_text_w(k->label, 2)) / 2, y + (h - 32) / 2, k->label, K.key_txt, 2);
+    if (!LCD_PORTRAIT) { *x = k->x; *w = k->w; return; }
+    *w = (LCD_W - 6 * (n + 1)) / n;
+    *x = 6 + i * (*w + 6);
+}
+
+static void draw_key(const rpi_canvas_t *c, const akey_t *k, int i, int n, bool hot)
+{
+    int r = K.square ? 0 : 8, x, w, y = KEY_Y, h = KEY_H;
+    key_x(k, i, n, &x, &w);
+    rpi_cv_rrect(c, x, y, w, h, r, hot ? K.btn_on : K.edge);
+    rpi_cv_rrect(c, x + 1, y + 1, w - 2, h - 2, r > 1 ? r - 1 : 0, hot ? rpi_mix565(K.btn, K.btn_on, 110) : K.btn);
+    rpi_cv_text(c, x + (w - rpi_cv_text_w(k->label, 2)) / 2, y + (h - 32) / 2, k->label, K.key_txt, 2);
 }
 
 /* SD log state after the second stats line: a red dot and REC (just the dot if REC won't
@@ -80,7 +92,7 @@ static void draw_bar(const rpi_canvas_t *c, const adsb_view_info_t *in)
     if (!s_map && n > NROWS) snprintf(a, sizeof a, "%d aircraft, %d shown", n, NROWS);
     else snprintf(a, sizeof a, "%d aircraft", n);
     snprintf(b, sizeof b, "%.0f msg/s", in->msgs_per_s);
-    int x = 100, maxx = (s_map ? s_keys_map[0].x : s_keys_list[0].x) - 6;
+    int x = 100, maxx = LCD_PORTRAIT ? LCD_W - 6 : (s_map ? s_keys_map[0].x : s_keys_list[0].x) - 6;
     if (x + rpi_cv_text_w(a, 1) <= maxx) rpi_cv_text(c, x, 6, a, K.txt, 1);
     int bx = x;
     if (x + rpi_cv_text_w(b, 1) <= maxx) {
@@ -90,7 +102,7 @@ static void draw_bar(const rpi_canvas_t *c, const adsb_view_info_t *in)
     rec_mark(c, bx, 24, maxx, in->rec);
     int nk;
     const akey_t *k = keys(&nk);
-    for (int i = 0; i < nk; i++) draw_key(c, &k[i], i == s_hot);
+    for (int i = 0; i < nk; i++) draw_key(c, &k[i], i, nk, i == s_hot);
 }
 
 /* newest first */
@@ -114,9 +126,11 @@ static void draw_list(const rpi_canvas_t *c)
     int n = sorted(ac);
     int64_t now = adsb_now_ms();
     if (!n) {
-        const char *a = "listening on 1090 MHz", *b = "aircraft show up here; an antenna at a window helps";
-        rpi_cv_text(c, (LCD_W - rpi_cv_text_w(a, 2)) / 2, 150, a, K.accent, 2);
-        rpi_cv_text(c, (LCD_W - rpi_cv_text_w(b, 1)) / 2, 192, b, K.dim, 1);
+        const char *a = "listening, 1090 MHz", *b = "aircraft show up here", *b2 = "an antenna at a window helps";
+        int y = BAR_H + (LCD_H - BAR_H) / 2 - 40;
+        rpi_cv_text(c, (LCD_W - rpi_cv_text_w(a, 2)) / 2, y, a, K.accent, 2);
+        rpi_cv_text(c, (LCD_W - rpi_cv_text_w(b, 1)) / 2, y + 42, b, K.dim, 1);
+        rpi_cv_text(c, (LCD_W - rpi_cv_text_w(b2, 1)) / 2, y + 60, b2, K.dim, 1);
         return;
     }
     for (int r = 0; r < n && r < NROWS; r++) {
@@ -137,12 +151,17 @@ static void draw_list(const rpi_canvas_t *c)
             snprintf(hdg, sizeof hdg, "hdg ---");
             vr[0] = 0;
         }
-        snprintf(l1, sizeof l1, "%-9s %-7s %s", alt, spd, hdg);
         int age = (int)((now - a->seen_ms) / 1000);
-        snprintf(l2, sizeof l2, "%06X %-10s %s %3ds %4u msg", (unsigned)a->icao, vr, a->has_pos ? "pos" : "   ",
-                 age, (unsigned)a->msgs);
-        rpi_cv_text(c, 152, y + 4, l1, K.txt, 1);
-        rpi_cv_text(c, 152, y + 22, l2, K.dim, 1);
+        if (LCD_PORTRAIT) {                      /* 22 columns beside the callsign */
+            snprintf(l1, sizeof l1, "%-9s %s", alt, spd);
+            snprintf(l2, sizeof l2, "%s %-9s %3ds", hdg, vr, age);
+        } else {
+            snprintf(l1, sizeof l1, "%-9s %-7s %s", alt, spd, hdg);
+            snprintf(l2, sizeof l2, "%06X %-10s %s %3ds %4u msg", (unsigned)a->icao, vr, a->has_pos ? "pos" : "   ",
+                     age, (unsigned)a->msgs);
+        }
+        rpi_cv_text(c, LCD_PORTRAIT ? 140 : 152, y + 4, l1, K.txt, 1);
+        rpi_cv_text(c, LCD_PORTRAIT ? 140 : 152, y + 22, l2, K.dim, 1);
     }
 }
 
@@ -222,7 +241,8 @@ static void base_map(const rpi_canvas_t *c, const adsb_view_info_t *in, int cx, 
 
 static void draw_map(const rpi_canvas_t *c, const adsb_view_info_t *in)
 {
-    const int cx = LCD_W / 2, cy = BAR_H + (LCD_H - BAR_H) / 2, R = (LCD_H - BAR_H) / 2 - 6;
+    const int side = LCD_W < LCD_H - BAR_H ? LCD_W : LCD_H - BAR_H;
+    const int cx = LCD_W / 2, cy = BAR_H + (LCD_H - BAR_H) / 2, R = side / 2 - 6;
     const double km_px = s_ranges[s_range] / (double)R;
     base_map(c, in, cx, cy, km_px);
     uint16_t ring = K.track, lbl = K.dim;
@@ -304,8 +324,12 @@ int adsb_view_touch(int ev, int x, int y)
 {
     int nk, hit = -1;
     const akey_t *k = keys(&nk);
-    if (y < BAR_H + 6)
-        for (int i = 0; i < nk; i++) if (x >= k[i].x - 3 && x < k[i].x + k[i].w + 3) hit = i;
+    if (y >= KEY_Y - 6 && y < KEY_Y + KEY_H + 6)
+        for (int i = 0; i < nk; i++) {
+            int kx, kw;
+            key_x(&k[i], i, nk, &kx, &kw);
+            if (x >= kx - 3 && x < kx + kw + 3) hit = i;
+        }
     int fired = AV_NONE, old = s_hot;
     if (ev == AV_RELEASE) {
         if (s_hot >= 0 && s_hot == hit) fired = k[hit].id;

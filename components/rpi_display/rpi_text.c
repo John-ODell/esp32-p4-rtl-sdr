@@ -6,7 +6,7 @@
 #include "pins.h"
 #include "font8x16.h"
 
-static uint16_t s_line[LCD_W * 32];      /* one text row at scale 2 */
+static uint16_t s_line[LCD_LONG * 32];      /* one text row at scale 2 */
 
 int rpi_lcd_text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int scale)
 {

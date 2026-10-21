@@ -20,8 +20,8 @@
 
 /* ------------------------------------------------------------------------- themes -- */
 
-enum { HDR_STUDIO, HDR_PORTAPACK, HDR_PHOSPHOR, HDR_VINTAGE };
-enum { SPEC_FILL, SPEC_BARS, SPEC_GLOW };
+enum { HDR_STUDIO, HDR_PORTAPACK, HDR_PHOSPHOR, HDR_VINTAGE, HDR_NEON };
+enum { SPEC_FILL, SPEC_BARS, SPEC_GLOW, SPEC_NEON };
 enum { GRID_DOTS, GRID_SCOPE, GRID_NONE };
 enum { AXIS_PLAIN, AXIS_DIAL };
 
@@ -34,6 +34,7 @@ typedef struct {
     int btn_y, btn_h;
     bool peak;                               /* draw peak hold */
     uint16_t bg, bg_pb;                      /* spectrum background, passband */
+    uint16_t bg_top;                         /* if set, the background fades from this at the top */
     uint16_t hdr_top, hdr_bot, hdr_line;     /* header gradient, bottom rule */
     uint16_t btn, btn_hi, btn_on, btn_edge;  /* button fill, sheen, held, outline */
     uint16_t txt, dim, freq;
@@ -108,24 +109,40 @@ static const theme_t s_themes[] = {
         .wf = {{0, 0, 0, 0}, {.22f, 30, 4, 0}, {.42f, 110, 20, 0}, {.58f, 190, 60, 0},
                {.72f, 240, 120, 10}, {.84f, 255, 190, 60}, {.94f, 255, 235, 160}, {1, 255, 255, 240}},
     },
+    {
+        /* synthwave: violet night, glass fill over the grid, cyan beam with a magenta glow */
+        .name = "Neon", .hdr = HDR_NEON, .spec = SPEC_NEON, .grid = GRID_DOTS, .axis = AXIS_PLAIN,
+        .hdr_h = 40, .spec_h = 120, .axis_h = 16, .btn_y = 5, .btn_h = 30, .peak = true,
+        .bg = C(4, 2, 12), .bg_pb = C(24, 8, 44), .bg_top = C(20, 6, 40),
+        .hdr_top = C(26, 8, 48), .hdr_bot = C(6, 2, 16), .hdr_line = C(255, 40, 170),
+        .btn = C(14, 4, 30), .btn_hi = C(14, 4, 30), .btn_on = C(255, 60, 190), .btn_edge = C(170, 40, 200),
+        .txt = C(235, 225, 255), .dim = C(150, 110, 210), .freq = C(60, 240, 255),
+        .grid_c = C(48, 20, 80), .fill_t = C(255, 40, 190), .fill_b = C(60, 0, 120),
+        .trace = C(225, 255, 255), .trace2 = C(255, 60, 200), .peak_c = C(120, 70, 190),
+        .center = C(60, 240, 255), .label = C(130, 90, 190), .plate = C(30, 10, 56),
+        .axis_bg = C(16, 4, 32), .axis_bg2 = C(6, 2, 14), .axis_fg = C(80, 230, 255), .axis_tick = C(170, 60, 210),
+        .wf_db = 46,
+        .wf = {{0, 8, 0, 22}, {.20f, 34, 0, 76}, {.38f, 80, 0, 132}, {.54f, 170, 0, 170},
+               {.68f, 255, 40, 120}, {.80f, 255, 140, 40}, {.92f, 255, 230, 90}, {1, 255, 255, 255}},
+    },
 };
 #undef C
 #define NTHEMES ((int)(sizeof s_themes / sizeof s_themes[0]))
-#define MAX_SPEC_H 128
-#define MAX_HDR_H  54
+#define PORT_KEYS  40                        /* portrait: a row of step keys under the header */
+#define PORT_SPEC  24                        /* and a taller spectrum */
+#define MAX_SPEC_H (128 + PORT_SPEC)
+#define MAX_HDR_H  (54 + PORT_KEYS)
 #define MAX_AXIS_H 24
-#define MAX_WF_H   (LCD_H - 40 - 86 - 16)    /* PortaPack has the tallest waterfall */
+#define MAX_WF_H   LCD_LONG
 
 static const theme_t *T = &s_themes[0];
 static int s_spec_y, s_axis_y, s_wf_y, s_wf_h;
+static int s_hdr_h, s_spec_h;                /* the theme's, plus the portrait extras */
 
-/* header buttons: x and width; y/height come from the theme */
-typedef struct { int x, w; const char *label; } button_t;
-static const button_t s_btn[VIEW_NBTN] = {
-    [VIEW_DN1M] = {4, 44, "-1M"},    [VIEW_DN100K] = {52, 54, "-100k"},
-    [VIEW_UP100K] = {318, 54, "+100k"}, [VIEW_UP1M] = {376, 44, "+1M"},
-    [VIEW_GAIN] = {424, 52, NULL},   [VIEW_THEME] = {110, 204, NULL},   /* the frequency readout */
-};
+/* header buttons, placed by layout() */
+typedef struct { int x, y, w, h; const char *label; } button_t;
+static button_t s_btn[VIEW_NBTN];
+static int s_ro_x0, s_ro_x1;                 /* room for the frequency readout */
 
 static uint32_t s_rate, s_span, s_pb_hz = 200000;   /* sample rate, shown width, shaded passband */
 static int s_hz_px, s_major, s_minor;                  /* Hz per column, axis steps */
@@ -134,7 +151,7 @@ static float s_ref = -20, s_range = 60;                /* manual: top of the sca
 static uint16_t *s_hdr, *s_axis, *s_spec;
 static uint16_t *s_wf;                       /* 2*wf_h rows, each line stored twice */
 static int s_wf_head;
-static float s_col[LCD_W], s_smooth[LCD_W], s_peak[LCD_W];
+static float s_col[LCD_LONG], s_smooth[LCD_LONG], s_peak[LCD_LONG];
 static void set_steps(void);
 static uint16_t s_lut[256], s_fill[MAX_SPEC_H];
 static float s_floor = -100;
@@ -152,7 +169,7 @@ static void build_tables(void)
                           (int)(st[k].g + u * (st[k + 1].g - st[k].g)),
                           (int)(st[k].b + u * (st[k + 1].b - st[k].b)));
     }
-    for (int y = 0; y < T->spec_h; y++) s_fill[y] = rpi_mix565(T->fill_t, T->fill_b, y * 256 / T->spec_h);
+    for (int y = 0; y < s_spec_h; y++) s_fill[y] = rpi_mix565(T->fill_t, T->fill_b, y * 256 / s_spec_h);
 }
 
 static void build_segments(void);
@@ -162,10 +179,10 @@ void view_init(uint32_t sample_rate)
 {
     s_rate = s_span = sample_rate;
     set_steps();
-    s_hdr = BIG_ALLOC(LCD_W * MAX_HDR_H * 2);
-    s_axis = BIG_ALLOC(LCD_W * MAX_AXIS_H * 2);
-    s_spec = BIG_ALLOC(LCD_W * MAX_SPEC_H * 2);
-    s_wf = BIG_ALLOC(2 * MAX_WF_H * LCD_W * 2);
+    s_hdr = BIG_ALLOC(LCD_LONG * MAX_HDR_H * 2);
+    s_axis = BIG_ALLOC(LCD_LONG * MAX_AXIS_H * 2);
+    s_spec = BIG_ALLOC(LCD_LONG * MAX_SPEC_H * 2);
+    s_wf = BIG_ALLOC(2 * MAX_WF_H * LCD_LONG * 2);
     if (!s_hdr || !s_axis || !s_spec || !s_wf) abort();
     build_segments();
     view_set_theme(0);
@@ -189,7 +206,7 @@ void view_colors(view_colors_t *c)
     c->accent = T->freq;
     c->track = T->grid_c;
     c->square = T->hdr == HDR_PORTAPACK;
-    c->top = T->hdr_h;
+    c->top = s_hdr_h;
 }
 int view_hz_per_px(void) { return s_hz_px; }
 uint32_t view_span(void) { return s_span; }
@@ -207,12 +224,12 @@ static void set_steps(void)
 void view_set_span(uint32_t span)
 {
     if (span > s_rate) span = s_rate;
-    if (span < LCD_W) span = LCD_W;
+    if (span < (uint32_t)LCD_W) span = LCD_W;
     s_span = span;
     set_steps();
     s_have = false;
     s_wf_head = 0;
-    memset(s_wf, 0, 2 * MAX_WF_H * LCD_W * 2);
+    memset(s_wf, 0, 2 * MAX_WF_H * LCD_LONG * 2);
 }
 
 void view_set_passband(uint32_t hz) { s_pb_hz = hz; }
@@ -237,15 +254,42 @@ static void scale(float *lo, float *hi, float *wlo, float *whi)
 }
 float view_floor(void) { return s_floor; }
 
+/* Landscape: one header row, [-1M][-100k] readout [+100k][+1M][MENU].
+ * Portrait: readout and MENU on top, the four step keys in a row under them. */
+static void layout(void)
+{
+    static const char *lbl[VIEW_NBTN] = {"-1M", "-100k", "+100k", "+1M", NULL, NULL};
+    const int y = T->btn_y, h = T->btn_h;
+    if (!LCD_PORTRAIT) {
+        static const int bx[VIEW_NBTN][2] = {{4, 44}, {52, 54}, {318, 54}, {376, 44}, {424, 52}, {110, 204}};
+        for (int i = 0; i < VIEW_NBTN; i++) s_btn[i] = (button_t){bx[i][0], y, bx[i][1], h, lbl[i]};
+        s_hdr_h = T->hdr_h;
+        s_spec_h = T->spec_h;
+        s_ro_x0 = 106;
+        s_ro_x1 = 318;
+        return;
+    }
+    const int kw = (LCD_W - 5 * 4) / 4;
+    for (int i = 0; i < 4; i++) s_btn[i] = (button_t){4 + i * (kw + 4), T->hdr_h + 3, kw, PORT_KEYS - 6, lbl[i]};
+    s_btn[VIEW_GAIN] = (button_t){LCD_W - 56, y, 52, h, NULL};
+    s_btn[VIEW_THEME] = (button_t){4, y, LCD_W - 64, h, NULL};
+    s_hdr_h = T->hdr_h + PORT_KEYS;
+    s_spec_h = T->spec_h + PORT_SPEC;
+    s_ro_x0 = 4;
+    s_ro_x1 = LCD_W - 60;
+}
+
 void view_set_theme(int i)
 {
     T = &s_themes[(i >= 0 && i < NTHEMES) ? i : 0];
-    s_spec_y = T->hdr_h;
-    s_axis_y = s_spec_y + T->spec_h;
+    layout();
+    set_steps();                             /* Hz per column follows the width */
+    s_spec_y = s_hdr_h;
+    s_axis_y = s_spec_y + s_spec_h;
     s_wf_y = s_axis_y + T->axis_h;
     s_wf_h = LCD_H - s_wf_y;
     s_wf_head = 0;
-    memset(s_wf, 0, 2 * MAX_WF_H * LCD_W * 2);
+    memset(s_wf, 0, 2 * MAX_WF_H * LCD_LONG * 2);
     build_tables();
     rpi_lcd_fill_rect(0, 0, LCD_W, LCD_H, T->bg);
 }
@@ -253,7 +297,7 @@ void view_set_theme(int i)
 void view_reset(void)
 {
     s_have = false;
-    rpi_lcd_fill_rect(0, s_spec_y, LCD_W, T->spec_h, T->bg);
+    rpi_lcd_fill_rect(0, s_spec_y, LCD_W, s_spec_h, T->bg);
     rpi_lcd_fill_rect(0, s_wf_y, LCD_W, s_wf_h, 0);
 }
 
@@ -362,10 +406,15 @@ static void outline(const rpi_canvas_t *c, int x, int y, int w, int h, int r, ui
 
 static void button(const rpi_canvas_t *c, const button_t *b, bool on)
 {
-    int y = T->btn_y, h = T->btn_h;
+    int y = b->y, h = b->h;
     switch (T->hdr) {
     case HDR_PORTAPACK:                      /* square, 1 px outline, inverted while held */
         outline(c, b->x, y, b->w, h, 0, T->btn_edge, on ? T->btn_on : T->btn);
+        break;
+    case HDR_NEON:                           /* rounded neon tube: outline, faint inner glow */
+        outline(c, b->x, y, b->w, h, 7, on ? T->btn_on : T->btn_edge, on ? T->btn_on : T->btn);
+        if (!on) rpi_cv_rrect(c, b->x + 2, y + 2, b->w - 4, h - 4, 5, rpi_mix565(T->btn, T->btn_edge, 40));
+        if (!on) rpi_cv_rrect(c, b->x + 3, y + 3, b->w - 6, h - 6, 4, T->btn);
         break;
     case HDR_PHOSPHOR:                       /* rounded outline only */
         outline(c, b->x, y, b->w, h, 5, on ? T->btn_on : T->btn_edge, on ? T->btn_on : T->btn);
@@ -386,17 +435,19 @@ static void button(const rpi_canvas_t *c, const button_t *b, bool on)
 static uint16_t btn_text(bool on)
 {
     if (!on) return T->txt;
-    return T->hdr == HDR_STUDIO ? T->txt : T->bg;   /* light keys get dark text */
+    return T->hdr == HDR_STUDIO || T->hdr == HDR_NEON ? T->txt : T->bg;   /* light keys get dark text */
 }
 
 void view_header(uint32_t freq, const char *gain, int pressed)
 {
-    rpi_canvas_t c = {s_hdr, LCD_W, T->hdr_h};
-    for (int y = 0; y < T->hdr_h - 1; y++)
-        rpi_cv_fill(&c, 0, y, LCD_W, 1, rpi_mix565(T->hdr_top, T->hdr_bot, y * 256 / T->hdr_h));
+    rpi_canvas_t c = {s_hdr, LCD_W, s_hdr_h};
+    for (int y = 0; y < s_hdr_h - 1; y++)
+        rpi_cv_fill(&c, 0, y, LCD_W, 1, rpi_mix565(T->hdr_top, T->hdr_bot, y * 256 / s_hdr_h));
+    if (T->hdr == HDR_NEON)                  /* glow under the rule */
+        for (int k = 1; k <= 3; k++) rpi_cv_fill(&c, 0, s_hdr_h - 1 - k, LCD_W, 1, rpi_mix565(T->hdr_bot, T->hdr_line, 90 / k));
     if (T->hdr == HDR_PHOSPHOR)              /* scan lines */
-        for (int y = 0; y < T->hdr_h - 1; y += 2) rpi_cv_fill(&c, 0, y, LCD_W, 1, rpi_mix565(T->hdr_top, T->dim, 20));
-    rpi_cv_fill(&c, 0, T->hdr_h - 1, LCD_W, 1, T->hdr_line);
+        for (int y = 0; y < s_hdr_h - 1; y += 2) rpi_cv_fill(&c, 0, y, LCD_W, 1, rpi_mix565(T->hdr_top, T->dim, 20));
+    rpi_cv_fill(&c, 0, s_hdr_h - 1, LCD_W, 1, T->hdr_line);
 
     if (T->hdr == HDR_PORTAPACK) {           /* title bar */
         rpi_cv_fill(&c, 0, 0, LCD_W, 16, RGB565(48, 48, 64));
@@ -411,17 +462,17 @@ void view_header(uint32_t freq, const char *gain, int pressed)
         bool on = i == pressed;
         button(&c, b, on);
         if (i == VIEW_GAIN) {                    /* opens Controls; shows the gain underneath */
-            int ty = T->btn_y + (T->btn_h - 32) / 2;
+            int ty = b->y + (b->h - 32) / 2;
             rpi_cv_text(&c, b->x + (b->w - rpi_cv_text_w("MENU", 1)) / 2, ty, "MENU", btn_text(on), 1);
             rpi_cv_text(&c, b->x + (b->w - rpi_cv_text_w(gain, 1)) / 2, ty + 15, gain,
                         on || T->hdr == HDR_VINTAGE ? btn_text(on) : T->dim, 1);
         } else {
-            rpi_cv_text(&c, b->x + (b->w - rpi_cv_text_w(b->label, 1)) / 2, T->btn_y + (T->btn_h - 16) / 2,
+            rpi_cv_text(&c, b->x + (b->w - rpi_cv_text_w(b->label, 1)) / 2, b->y + (b->h - 16) / 2,
                         b->label, btn_text(on), 1);
         }
     }
 
-    int x0 = s_btn[VIEW_DN100K].x + s_btn[VIEW_DN100K].w, x1 = s_btn[VIEW_UP100K].x;
+    int x0 = s_ro_x0, x1 = s_ro_x1;
     int mhz_w = 4 + rpi_cv_text_w("MHz", 1);
     if (T->hdr == HDR_PORTAPACK) {           /* plain 16x32 digits, zero padded */
         char f[12];
@@ -436,18 +487,20 @@ void view_header(uint32_t freq, const char *gain, int pressed)
             outline(&c, x - 6, y - 3, SEG_FREQ_W + mhz_w + 12, SEG_H + 6, 4, T->btn_edge, RGB565(14, 8, 3));
             rpi_cv_fill(&c, x - 3, y - 1, SEG_FREQ_W + mhz_w + 6, 1, RGB565(46, 30, 16));
         }
-        bool glow = T->hdr == HDR_PHOSPHOR || T->hdr == HDR_VINTAGE;
+        bool glow = T->hdr == HDR_PHOSPHOR || T->hdr == HDR_VINTAGE || T->hdr == HDR_NEON;
         x += seg_freq(&c, x, y, freq, T->hdr == HDR_PHOSPHOR ? 16 : 22, glow);
         rpi_cv_text(&c, x + 2, y + SEG_H - 15, "MHz", T->dim, 1);
     }
-    rpi_lcd_blit(0, 0, LCD_W, T->hdr_h, s_hdr);
+    rpi_lcd_blit(0, 0, LCD_W, s_hdr_h, s_hdr);
 }
 
 int view_button_at(int x, int y)
 {
-    if (y < T->btn_y - 4 || y >= T->hdr_h) return -1;
-    for (int i = 0; i < VIEW_NBTN; i++)
-        if (x >= s_btn[i].x - 2 && x < s_btn[i].x + s_btn[i].w + 2) return i;
+    if (y >= s_hdr_h) return -1;
+    for (int i = 0; i < VIEW_NBTN; i++) {
+        const button_t *b = &s_btn[i];
+        if (x >= b->x - 2 && x < b->x + b->w + 2 && y >= b->y - 4 && y < b->y + b->h + 4) return i;
+    }
     return -1;
 }
 
@@ -513,14 +566,76 @@ static void update_floor(void)
 
 static inline void px_mix(int x, int y, uint16_t col, int t)
 {
-    if (y < 0 || y >= T->spec_h) return;
+    if (y < 0 || y >= s_spec_h) return;
     uint16_t *p = &s_spec[y * LCD_W + x];
     *p = rpi_mix565(*p, col, t);
 }
 
+/* S/N as a ten-segment bar meter, 6 dB a segment, in a plate at the top right */
+static void s_meter(const rpi_canvas_t *c, int snr)
+{
+    char t[12];
+    snprintf(t, sizeof t, "%2d dB", snr < 0 ? 0 : snr > 99 ? 99 : snr);
+    const int segs = 10, sw = 5, gap = 1, bar = segs * (sw + gap) - gap;
+    int tw = rpi_cv_text_w(t, 1), w = 8 + 24 + bar + 6 + tw + 6, x = LCD_W - w - 4, y = 4;
+    uint16_t fg = T->hdr == HDR_VINTAGE ? T->trace : T->txt;
+    if (T->hdr == HDR_PORTAPACK) outline(c, x, y - 1, w, 18, 0, T->btn_edge, T->plate);
+    else rpi_cv_rrect(c, x, y, w, 18, 4, T->plate);
+    rpi_cv_text(c, x + 6, y + 1, "S/N", T->dim, 1);
+    int lit = (snr + 3) / 6, bx = x + 8 + 24;
+    for (int i = 0; i < segs; i++) {
+        uint16_t on = i < 5 ? RGB565(60, 220, 110) : i < 8 ? RGB565(250, 210, 40) : RGB565(255, 70, 60);
+        if (T->hdr == HDR_PHOSPHOR) on = i < 8 ? T->trace2 : T->trace;
+        else if (T->hdr == HDR_VINTAGE) on = i < 8 ? T->trace2 : RGB565(255, 90, 40);
+        else if (T->hdr == HDR_NEON) on = i < 5 ? T->freq : i < 8 ? T->trace2 : RGB565(255, 220, 90);
+        rpi_cv_fill(c, bx + i * (sw + gap), y + 4, sw, 10, i < lit ? on : rpi_mix565(T->plate, on, 40));
+    }
+    rpi_cv_text(c, bx + bar + 6, y + 1, t, fg, 1);
+}
+
+/* Label up to three strong signals away from the centre: a tick over the peak and its MHz. */
+static void markers(const rpi_canvas_t *c, uint32_t fc, const int *ys, int pb0, int pb1)
+{
+    enum { NMARK = 3, WIN = 24 };
+    int mx[NMARK], n = 0;
+    float thr = s_floor + 15;
+    for (int k = 0; k < NMARK; k++) {
+        int best = -1;
+        for (int x = 34; x < LCD_W - 34; x++) {
+            if (x >= pb0 - 8 && x <= pb1 + 8) continue;        /* the S-meter covers the tuned one */
+            if (s_smooth[x] < thr || (best >= 0 && s_smooth[x] <= s_smooth[best])) continue;
+            bool near = false, top = true;
+            for (int j = 0; j < n; j++) if (abs(x - mx[j]) < 2 * WIN) near = true;
+            for (int d = -WIN; d <= WIN && top; d++)
+                if (x + d >= 0 && x + d < LCD_W && s_smooth[x + d] > s_smooth[x]) top = false;
+            if (!near && top) best = x;
+        }
+        if (best < 0) break;
+        mx[n++] = best;
+    }
+    uint16_t fg = T->hdr == HDR_VINTAGE ? T->trace : T->txt;
+    for (int k = 0; k < n; k++) {
+        int x = mx[k], y = ys[x] - 4;
+        double mhz = ((double)fc - s_span / 2.0 + (double)x * s_hz_px) / 1e6;
+        char l[12];
+        snprintf(l, sizeof l, s_span > 600000 ? "%.2f" : "%.3f", mhz);
+        int tw = rpi_cv_text_w(l, 1), lx = x - tw / 2, ly = y - 4 - 16;
+        if (lx < 30) lx = 30;
+        if (lx + tw > LCD_W - 2) lx = LCD_W - 2 - tw;
+        if (ly < 24) {                       /* tall peak: label beside it instead */
+            ly = 24;
+            lx = x + 6 + tw < LCD_W - 2 ? x + 6 : x - 6 - tw;
+        }
+        for (int i = 0; i < 4; i++)          /* small downward triangle */
+            if (y - i >= 0) rpi_cv_fill(c, x - i, y - i, 2 * i + 1, 1, T->center);
+        rpi_cv_rrect(c, lx - 3, ly, tw + 6, 16, 3, rpi_mix565(T->plate, T->bg, 60));
+        rpi_cv_text(c, lx, ly, l, fg, 1);
+    }
+}
+
 static void render_spectrum(uint32_t fc)
 {
-    const int H = T->spec_h;
+    const int H = s_spec_h;
     float lo, hi, wlo, whi;
     scale(&lo, &hi, &wlo, &whi);
     const float px_db = (H - 1) / (hi - lo);
@@ -531,7 +646,8 @@ static void render_spectrum(uint32_t fc)
 
     for (int y = 0; y < H; y++) {
         uint16_t *row = s_spec + y * LCD_W;
-        for (int x = 0; x < LCD_W; x++) row[x] = (x >= pb0 && x <= pb1) ? T->bg_pb : T->bg;
+        uint16_t bg = T->bg_top ? rpi_mix565(T->bg_top, T->bg, y * 256 / H) : T->bg;
+        for (int x = 0; x < LCD_W; x++) row[x] = (x >= pb0 && x <= pb1) ? T->bg_pb : bg;
     }
     int first10 = (int)ceilf(lo / 10.0f) * 10;
     if (T->grid == GRID_DOTS) {              /* 10 dB rows, 500 kHz columns, dotted */
@@ -558,7 +674,7 @@ static void render_spectrum(uint32_t fc)
             for (int d = -2; d <= 2; d++) s_spec[(H / 2 + d) * LCD_W + x] = T->grid_c;
     }
 
-    int ys[LCD_W];
+    int ys[LCD_LONG];
     for (int x = 0; x < LCD_W; x++) {
         int y = (int)((hi - s_smooth[x]) * px_db);
         ys[x] = y < 0 ? 0 : y > H - 1 ? H - 1 : y;
@@ -566,6 +682,12 @@ static void render_spectrum(uint32_t fc)
     if (T->spec == SPEC_FILL)
         for (int x = 0; x < LCD_W; x++)
             for (int yy = ys[x] + 1; yy < H; yy++) s_spec[yy * LCD_W + x] = s_fill[yy];
+    else if (T->spec == SPEC_NEON)           /* glass: the grid shows through, brightest at the trace */
+        for (int x = 0; x < LCD_W; x++)
+            for (int yy = ys[x] + 1; yy < H; yy++) {
+                int d = yy - ys[x];
+                px_mix(x, yy, s_fill[yy], d < 3 ? 200 : d < 10 ? 150 : 96);
+            }
     else if (T->spec == SPEC_BARS)
         for (int x = 0; x < LCD_W; x++)
             for (int yy = ys[x] + 1; yy < H; yy++) s_spec[yy * LCD_W + x] = T->trace2;
@@ -579,10 +701,11 @@ static void render_spectrum(uint32_t fc)
     for (int x = 0; x < LCD_W; x++) {
         int a = x ? ys[x - 1] : ys[0], b = ys[x];
         if (a > b) { int t = a; a = b; b = t; }
-        if (T->spec == SPEC_GLOW) {          /* phosphor halo, then the beam */
-            for (int yy = a - 3; yy <= b + 3; yy++) {
+        if (T->spec == SPEC_GLOW || T->spec == SPEC_NEON) {   /* halo, then the beam */
+            int r = T->spec == SPEC_NEON ? 5 : 3;
+            for (int yy = a - r; yy <= b + r; yy++) {
                 int d = yy < a ? a - yy : yy > b ? yy - b : 0;
-                if (d) px_mix(x, yy, T->trace2, d == 1 ? 150 : d == 2 ? 70 : 30);
+                if (d) px_mix(x, yy, T->trace2, d == 1 ? 150 : d == 2 ? 90 : d == 3 ? 50 : 25);
             }
             for (int yy = a; yy <= b; yy++) s_spec[yy * LCD_W + x] = T->trace;
         } else {
@@ -603,13 +726,8 @@ static void render_spectrum(uint32_t fc)
 
     float pk = -200;
     for (int x = pb0; x <= pb1; x++) if (s_smooth[x] > pk) pk = s_smooth[x];
-    char snr[16];
-    snprintf(snr, sizeof snr, "S/N %2d dB", (int)lrintf(pk - s_floor));
-    int tw = rpi_cv_text_w(snr, 1);
-    uint16_t fg = T->hdr == HDR_VINTAGE ? T->trace : T->txt;
-    if (T->hdr == HDR_PORTAPACK) outline(&c, LCD_W - tw - 12, 3, tw + 8, 18, 0, T->btn_edge, T->plate);
-    else rpi_cv_rrect(&c, LCD_W - tw - 12, 4, tw + 8, 18, 4, T->plate);
-    rpi_cv_text(&c, LCD_W - tw - 8, T->hdr == HDR_PORTAPACK ? 4 : 5, snr, fg, 1);
+    markers(&c, fc, ys, pb0, pb1);
+    s_meter(&c, (int)lrintf(pk - s_floor));
 }
 
 static void push_waterfall_line(void)
@@ -642,7 +760,7 @@ void view_render(const float *db, int n, uint32_t freq)
     push_waterfall_line();
 }
 
-void view_blit_spectrum(void) { rpi_lcd_blit(0, s_spec_y, LCD_W, T->spec_h, s_spec); }
+void view_blit_spectrum(void) { rpi_lcd_blit(0, s_spec_y, LCD_W, s_spec_h, s_spec); }
 void view_blit_waterfall(void) { rpi_lcd_blit(0, s_wf_y, LCD_W, s_wf_h, s_wf + (size_t)s_wf_head * LCD_W); }
 
 void view_blit(void)

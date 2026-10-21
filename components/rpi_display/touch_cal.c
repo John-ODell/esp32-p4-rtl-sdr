@@ -44,11 +44,33 @@ esp_err_t touch_cal_save(const touch_cal_t *cal, float err) {
     return r;
 }
 
+/* The saved calibration maps to landscape pixels. Portrait (rpi_lcd_set_portrait) is the kit
+ * turned so its USB ports face up: a quarter turn anticlockwise from the default landscape,
+ * clockwise from the 180-degree one. */
 void touch_cal_map(const touch_cal_t *c, uint16_t rx, uint16_t ry, int *px, int *py) {
     int x = (int)lroundf(c->a * rx + c->b * ry + c->c);
     int y = (int)lroundf(c->d * rx + c->e * ry + c->f);
-    *px = x < 0 ? 0 : x > LCD_W - 1 ? LCD_W - 1 : x;
-    *py = y < 0 ? 0 : y > LCD_H - 1 ? LCD_H - 1 : y;
+    x = x < 0 ? 0 : x > LCD_LONG - 1 ? LCD_LONG - 1 : x;
+    y = y < 0 ? 0 : y > LCD_SHORT - 1 ? LCD_SHORT - 1 : y;
+    if (LCD_PORTRAIT) {
+#if CONFIG_RPI_LCD_ROTATE_180
+        int u = LCD_SHORT - 1 - y, v = x;
+#else
+        int u = y, v = LCD_LONG - 1 - x;
+#endif
+        x = u; y = v;
+    }
+    *px = x; *py = y;
+}
+
+/* a fit made in portrait, turned back to landscape for saving (the inverse of the above) */
+static touch_cal_t to_landscape(touch_cal_t p) {
+#if CONFIG_RPI_LCD_ROTATE_180
+    touch_cal_t l = {p.d, p.e, p.f, -p.a, -p.b, LCD_SHORT - 1 - p.c};
+#else
+    touch_cal_t l = {-p.d, -p.e, LCD_LONG - 1 - p.f, p.a, p.b, p.c};
+#endif
+    return l;
 }
 
 static void crosshair(int x, int y, uint16_t col) {
@@ -59,7 +81,8 @@ static void crosshair(int x, int y, uint16_t col) {
 
 /* Centred instruction lines, kept clear of the five targets. */
 static void say(int y, const char *msg, uint16_t fg) {
-    rpi_lcd_fill_rect(60, y, LCD_W - 120, 16, RGB(0, 0, 0));
+    y += LCD_H / 2 - 160;                         /* laid out for 320 rows; centred on taller */
+    rpi_lcd_fill_rect(0, y, LCD_W, 16, RGB(0, 0, 0));
     rpi_lcd_text(LCD_W / 2 - (int)strlen(msg) * 4, y, msg, fg, RGB(0, 0, 0), 1);
 }
 
@@ -152,6 +175,7 @@ esp_err_t touch_cal_run(touch_cal_t *cal, float *max_err) {
             vTaskDelay(pdMS_TO_TICKS(500));
             continue;
         }
+        if (LCD_PORTRAIT) c = to_landscape(c);
         *cal = c; if (max_err) *max_err = worst;
         esp_err_t r = touch_cal_save(&c, worst);
         char m[40];

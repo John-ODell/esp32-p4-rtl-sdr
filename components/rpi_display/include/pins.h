@@ -30,5 +30,11 @@
 #define LCD_SPI_HZ     (CONFIG_RPI_LCD_SPI_MHZ * 1000 * 1000)
 #define TP_SPI_HZ      (2 * 1000 * 1000)
 
-#define LCD_W 480
-#define LCD_H 320
+/* The panel is 480x320. rpi_lcd_set_portrait() turns it to 320x480, so LCD_W and LCD_H are
+ * the current size; size static buffers with LCD_LONG. */
+#define LCD_LONG  480
+#define LCD_SHORT 320
+extern int rpi_lcd_w, rpi_lcd_h;
+#define LCD_W rpi_lcd_w
+#define LCD_H rpi_lcd_h
+#define LCD_PORTRAIT (rpi_lcd_w < rpi_lcd_h)

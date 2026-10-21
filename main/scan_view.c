@@ -15,7 +15,10 @@
 #define BIG_ALLOC(n) calloc(1, (n))
 #endif
 
-#define BAR_H  48
+/* The top bar: title and stats beside the keys, or in portrait above a row of them. */
+#define BAR_H  (LCD_PORTRAIT ? 92 : 48)
+#define KEY_Y  (LCD_PORTRAIT ? 46 : 4)
+#define KEY_H  40
 #define ROW_H  38
 #define NROWS  ((LCD_H - BAR_H - 2) / ROW_H)
 
@@ -55,12 +58,21 @@ static const skey_t *keys(int *n)
 
 static int pages(void) { return s_total ? (s_total + NROWS - 1) / NROWS : 1; }
 
-static void draw_key(const rpi_canvas_t *c, const skey_t *k, bool hot)
+/* key i of n: its place in landscape, or an equal share of the portrait key row */
+static void key_x(const skey_t *k, int i, int n, int *x, int *w)
 {
-    int r = K.square ? 0 : 8, y = 4, h = BAR_H - 8;
-    rpi_cv_rrect(c, k->x, y, k->w, h, r, hot ? K.btn_on : K.edge);
-    rpi_cv_rrect(c, k->x + 1, y + 1, k->w - 2, h - 2, r > 1 ? r - 1 : 0, hot ? rpi_mix565(K.btn, K.btn_on, 110) : K.btn);
-    rpi_cv_text(c, k->x + (k->w - rpi_cv_text_w(k->label, 2)) / 2, y + (h - 32) / 2, k->label, K.key_txt, 2);
+    if (!LCD_PORTRAIT) { *x = k->x; *w = k->w; return; }
+    *w = (LCD_W - 6 * (n + 1)) / n;
+    *x = 6 + i * (*w + 6);
+}
+
+static void draw_key(const rpi_canvas_t *c, const skey_t *k, int i, int n, bool hot)
+{
+    int r = K.square ? 0 : 8, x, w, y = KEY_Y, h = KEY_H;
+    key_x(k, i, n, &x, &w);
+    rpi_cv_rrect(c, x, y, w, h, r, hot ? K.btn_on : K.edge);
+    rpi_cv_rrect(c, x + 1, y + 1, w - 2, h - 2, r > 1 ? r - 1 : 0, hot ? rpi_mix565(K.btn, K.btn_on, 110) : K.btn);
+    rpi_cv_text(c, x + (w - rpi_cv_text_w(k->label, 2)) / 2, y + (h - 32) / 2, k->label, K.key_txt, 2);
 }
 
 /* SD log state after the second stats line: a red dot and REC (just the dot if REC won't
@@ -87,7 +99,7 @@ static void draw_bar(const rpi_canvas_t *c, const scan_view_info_t *in)
     else snprintf(b, sizeof b, "page %d/%d", s_page + 1, pages());
     int nk;
     const skey_t *k = keys(&nk);
-    int x = s_kind == SV_BLE ? 60 : 100, maxx = k[0].x - 6;
+    int x = s_kind == SV_BLE ? 60 : 100, maxx = LCD_PORTRAIT ? LCD_W - 6 : k[0].x - 6;
     if (x + rpi_cv_text_w(a, 1) <= maxx) rpi_cv_text(c, x, 6, a, K.txt, 1);
     int bx = x;
     if (x + rpi_cv_text_w(b, 1) <= maxx) {
@@ -95,7 +107,7 @@ static void draw_bar(const rpi_canvas_t *c, const scan_view_info_t *in)
         bx += rpi_cv_text_w(b, 1) + 6;
     }
     rec_mark(c, bx, 24, maxx, in->rec);
-    for (int i = 0; i < nk; i++) draw_key(c, &k[i], i == s_hot);
+    for (int i = 0; i < nk; i++) draw_key(c, &k[i], i, nk, i == s_hot);
 }
 
 /* four signal bars, 20 px wide, bottom at y */
@@ -110,8 +122,9 @@ static void bars(const rpi_canvas_t *c, int x, int y, int rssi)
 
 static void message(const rpi_canvas_t *c, const char *a, const char *b)
 {
-    rpi_cv_text(c, (LCD_W - rpi_cv_text_w(a, 2)) / 2, 150, a, K.accent, 2);
-    if (b) rpi_cv_text(c, (LCD_W - rpi_cv_text_w(b, 1)) / 2, 192, b, K.dim, 1);
+    int y = BAR_H + (LCD_H - BAR_H) / 2 - 40;
+    rpi_cv_text(c, (LCD_W - rpi_cv_text_w(a, 2)) / 2, y, a, K.accent, 2);
+    if (b) rpi_cv_text(c, (LCD_W - rpi_cv_text_w(b, 1)) / 2, y + 42, b, K.dim, 1);
 }
 
 static void age(char *b, size_t n, int64_t ms)
@@ -137,17 +150,20 @@ static void draw_wifi_list(const rpi_canvas_t *c, const scan_view_info_t *in)
         if (r % 2) rpi_cv_fill(c, 0, y, LCD_W, ROW_H, rpi_mix565(K.bg, K.btn, 70));
         bars(c, 8, y + 26, a->rssi);
         char t[48];
-        if (a->ssid[0]) rpi_cv_text(c, 36, y + 2, a->ssid, K.txt, 1);
-        else rpi_cv_text(c, 36, y + 2, "(hidden)", K.dim, 1);
+        const bool p = LCD_PORTRAIT;             /* portrait drops the BSSID */
+        snprintf(t, sizeof t, "%.*s", p ? 25 : 34, a->ssid[0] ? a->ssid : "(hidden)");
+        rpi_cv_text(c, 36, y + 2, t, a->ssid[0] ? K.txt : K.dim, 1);
         snprintf(t, sizeof t, "ch %d", a->ch);
-        rpi_cv_text(c, 316, y + 2, t, K.txt, 1);
+        rpi_cv_text(c, p ? 36 : 316, p ? y + 19 : y + 2, t, K.txt, 1);
         snprintf(t, sizeof t, "%d dBm", a->rssi);
         rpi_cv_text(c, LCD_W - 8 - rpi_cv_text_w(t, 1), y + 2, t, K.accent, 1);
-        snprintf(t, sizeof t, "%02X:%02X:%02X:%02X:%02X:%02X", a->bssid[0], a->bssid[1], a->bssid[2],
-                 a->bssid[3], a->bssid[4], a->bssid[5]);
-        rpi_cv_text(c, 36, y + 19, t, K.dim, 1);
+        if (!p) {
+            snprintf(t, sizeof t, "%02X:%02X:%02X:%02X:%02X:%02X", a->bssid[0], a->bssid[1], a->bssid[2],
+                     a->bssid[3], a->bssid[4], a->bssid[5]);
+            rpi_cv_text(c, 36, y + 19, t, K.dim, 1);
+        }
         bool open = !strcmp(a->sec, "OPEN");
-        rpi_cv_text(c, 316, y + 19, a->sec, open ? K.accent : K.dim, 1);
+        rpi_cv_text(c, p ? 100 : 316, y + 19, a->sec, open ? K.accent : K.dim, 1);
         age(t, sizeof t, in->now_ms - a->seen_ms);
         rpi_cv_text(c, LCD_W - 8 - rpi_cv_text_w(t, 1), y + 19, t, K.dim, 1);
     }
@@ -188,7 +204,9 @@ static void draw_wifi_chan(const rpi_canvas_t *c, const scan_view_info_t *in)
     for (int ch = 1; ch <= 13; ch++) {
         int x = CX(ch * 10);
         snprintf(t, sizeof t, "%d", ch);
-        rpi_cv_text(c, x - rpi_cv_text_w(t, 1) / 2, y1 + 2, t, ch == 1 || ch == 6 || ch == 11 ? K.txt : K.dim, 1);
+        bool main_ch = ch == 1 || ch == 6 || ch == 11;
+        if (!LCD_PORTRAIT || main_ch || ch % 2)  /* narrow: 10 and 12 would run together */
+            rpi_cv_text(c, x - rpi_cv_text_w(t, 1) / 2, y1 + 2, t, main_ch ? K.txt : K.dim, 1);
         if (count[ch]) {
             snprintf(t, sizeof t, "%d", count[ch]);
             rpi_cv_text(c, x - rpi_cv_text_w(t, 1) / 2, y1 + 17, t, K.accent, 1);
@@ -254,14 +272,15 @@ static void draw_ble_list(const rpi_canvas_t *c, const scan_view_info_t *in)
         if (r % 2) rpi_cv_fill(c, 0, y, LCD_W, ROW_H, rpi_mix565(K.bg, K.btn, 70));
         bars(c, 8, y + 26, d->rssi);
         char t[48];
+        const bool p = LCD_PORTRAIT;             /* portrait: the maker under the name, no address */
         if (d->name[0]) rpi_cv_text(c, 36, y + 2, d->name, K.txt, 1);
         else rpi_cv_text(c, 36, y + 2, d->kind[0] ? d->kind : "(no name)", d->kind[0] ? K.txt : K.dim, 1);
-        if (d->name[0] && d->kind[0]) rpi_cv_text(c, 260, y + 2, d->kind, K.dim, 1);
+        if (d->name[0] && d->kind[0]) rpi_cv_text(c, p ? 36 : 260, p ? y + 19 : y + 2, d->kind, K.dim, 1);
         snprintf(t, sizeof t, "%d dBm", d->rssi);
         rpi_cv_text(c, LCD_W - 8 - rpi_cv_text_w(t, 1), y + 2, t, K.accent, 1);
         snprintf(t, sizeof t, "%02X:%02X:%02X:%02X:%02X:%02X%s", d->addr[0], d->addr[1], d->addr[2],
                  d->addr[3], d->addr[4], d->addr[5], d->random ? " rnd" : "");
-        rpi_cv_text(c, 36, y + 19, t, K.dim, 1);
+        if (!p) rpi_cv_text(c, 36, y + 19, t, K.dim, 1);
         char ag[16];
         age(ag, sizeof ag, in->now_ms - d->seen_ms);
         snprintf(t, sizeof t, "%s%5u adv %4s", d->connectable ? "conn " : "     ", (unsigned)d->count, ag);
@@ -286,7 +305,7 @@ void scan_view_draw(const scan_view_info_t *in)
     else if (in->kind == SV_WIFI && !in->nap)
         message(&c, "scanning 2.4 GHz", "channels 1-13, about 2 s a sweep");
     else if (in->kind == SV_BLE && !in->nble)
-        message(&c, "listening for BLE", "phones, watches, tags and beacons show up here");
+        message(&c, "listening for BLE", "phones, watches and tags show up here");
     else if (in->kind == SV_WIFI && s_chan) draw_wifi_chan(&c, in);
     else if (in->kind == SV_WIFI) draw_wifi_list(&c, in);
     else draw_ble_list(&c, in);
@@ -304,8 +323,12 @@ int scan_view_touch(int ev, int x, int y)
 {
     int nk, hit = -1;
     const skey_t *k = keys(&nk);
-    if (y < BAR_H + 6)
-        for (int i = 0; i < nk; i++) if (x >= k[i].x - 3 && x < k[i].x + k[i].w + 3) hit = i;
+    if (y >= KEY_Y - 6 && y < KEY_Y + KEY_H + 6)
+        for (int i = 0; i < nk; i++) {
+            int kx, kw;
+            key_x(&k[i], i, nk, &kx, &kw);
+            if (x >= kx - 3 && x < kx + kw + 3) hit = i;
+        }
     int fired = SV_NONE, old = s_hot;
     if (ev == SV_RELEASE) {
         if (s_hot >= 0 && s_hot == hit) fired = k[hit].id;

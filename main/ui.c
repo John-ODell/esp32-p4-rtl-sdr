@@ -122,6 +122,19 @@ static void set_look(int i)
     settings_changed();
 }
 
+/* landscape <-> portrait: saved at once (main.c reads it before the splash), then every
+ * screen is laid out again */
+static void turn(void)
+{
+    bool p = !LCD_PORTRAIT;
+    rpi_lcd_set_portrait(p);
+    nvs_set_i32(s_nvs, "port", p);
+    nvs_commit(s_nvs);
+    ESP_LOGI(TAG, "%s", p ? "portrait" : "landscape");
+    set_look(view_theme());
+    draw_header(-1);
+}
+
 static void do_action(int act)
 {
     uint32_t f = sdr_freq();
@@ -140,6 +153,10 @@ static void panel_event(int ev, int x, int y, int64_t now)
 {
     int ch = panel_touch(&s_ctl, ev, x, y, now);
     if (ch & CTL_CLOSE) { panel_show(false); return; }
+    if (ch & CTL_TURN) {
+        turn();
+        return;
+    }
     if (ch & CTL_LOOK) {
         set_look(s_ctl.look);
         draw_header(-1);
