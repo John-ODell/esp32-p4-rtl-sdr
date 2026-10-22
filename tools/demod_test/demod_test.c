@@ -272,6 +272,15 @@ int main(void)
         CHECK(jump < 3000, "%s: sound starts at %d, not faded in", name, jump);
         CHECK(on && loud > 1000, "%s: shut on a station", name);
         CHECK(!demod_open() && quiet == 0, "%s: open on noise", name);
+        if (!am) {                           /* a retune (memory scan hop) forgets the last channel */
+            make(&sq[i].st, 1, 0.01);
+            run(NULL);
+            bool was = demod_open();
+            demod_retuned();
+            make(NULL, 0, 0.01);
+            demod_process(s_iq, 4800, s_out);  /* 2 ms */
+            CHECK(was && !demod_open(), "%s: squelch still open 2 ms after a retune to noise", name);
+        }
     }
 
     rds_case("RDS, strong, 100 ppm off", 6, 0.02, 3000, 100, false);

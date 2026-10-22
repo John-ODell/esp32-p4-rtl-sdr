@@ -148,6 +148,7 @@ bool audio_ok(void) { return s_dev != NULL; }
 
 void audio_set_mode(demod_mode_t mode, uint32_t bw_hz)
 {
+    if (mode == s_mode && bw_hz == s_bw) return;     /* keeps the AM floor across a memory scan */
     s_mode = mode;
     s_bw = bw_hz;
     s_req_mode = true;

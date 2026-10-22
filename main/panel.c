@@ -1,3 +1,4 @@
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,8 +46,8 @@ const char *panel_band(int i, uint32_t *freq, int *bw, int *zoom)
 
 /* --------------------------------------------------------------------------- keys -- */
 
-enum { P_MENU, P_GAIN, P_RANGE, P_ZOOM, P_BW, P_BAND, P_SCAN, P_LOOK };
-static const char *s_title[] = {"CONTROLS", "GAIN", "RANGE", "ZOOM", "AUDIO", "BAND", "SCAN", "LOOK"};
+enum { P_MENU, P_GAIN, P_RANGE, P_ZOOM, P_BW, P_BAND, P_SCAN, P_LOOK, P_MEM, P_SAVE };
+static const char *s_title[] = {"CONTROLS", "GAIN", "RANGE", "ZOOM", "AUDIO", "BAND", "SCAN", "LOOK", "MEMORY", "SAVE TO"};
 #define LOOKS 5
 static const char *s_look_sub[LOOKS] = {"clean blue", "Mayhem style", "green CRT", "walnut and amber", "synthwave"};
 
@@ -57,6 +58,7 @@ enum {
     K_TOP_DN = K_GAIN_P + 4, K_TOP_UP, K_SPAN_DN, K_SPAN_UP, K_AUTO,
     K_ZOOM, K_BW = K_ZOOM + PANEL_ZOOMS, K_BAND = K_BW + PANEL_BWS, K_LOOK = K_BAND + PANEL_BANDS,
     K_VOL_DN = K_LOOK + LOOKS, K_VOL_UP, K_SQL_DN, K_SQL_UP,
+    K_MEMORY, K_SAVE, K_MSCAN, K_SLOT,      /* K_SLOT + 0..7: memory slots */
 };
 
 typedef struct {
@@ -131,7 +133,7 @@ static void build(const ctl_t *c)
         else snprintf(v, sizeof v, "%s, off", s_bw_mode[c->bw]);
         grid(GAP, y, w, h, c4, r2, 3, K_TILE + P_BW, "AUDIO", v)->big = true;
         grid(GAP, y, w, h, c4, r2, 4, K_TILE + P_BAND, "BAND", c->band >= 0 ? s_band[c->band].name : "presets")->big = true;
-        grid(GAP, y, w, h, c4, r2, 5, K_TILE + P_SCAN, "SCAN", "Wi-Fi, BLE")->big = true;
+        grid(GAP, y, w, h, c4, r2, 5, K_TILE + P_SCAN, "SCAN", "Wi-Fi, BLE, memory")->big = true;
         grid(GAP, y, w, h, c4, r2, 6, K_TILE + P_LOOK, "LOOK", view_theme_name(view_theme()))->big = true;
         grid(GAP, y, w, h, c4, r2, 7, K_DONE, "DONE", "to radio")->big = true;
         return;
@@ -139,7 +141,9 @@ static void build(const ctl_t *c)
     /* sub page: BACK + title, then the body */
     const int bar = 44, by = GAP + bar + GAP, bh = s_h - by - GAP, bw = LCD_W - 2 * GAP;
     add(GAP, GAP, 120, bar, K_BACK, "< BACK", NULL)->big = true;
-    add(GAP + 120 + GAP, GAP, LCD_W - 3 * GAP - 120, bar, K_LABEL, s_title[s_page], NULL)->big = true;
+    const int scan_w = s_page == P_MEM ? 120 + GAP : 0;  /* MEMORY has SCAN up here */
+    add(GAP + 120 + GAP, GAP, LCD_W - 3 * GAP - 120 - scan_w, bar, K_LABEL, s_title[s_page], NULL)->big = true;
+    if (scan_w) add(LCD_W - GAP - 120, GAP, 120, bar, K_MSCAN, "SCAN", NULL)->big = true;
     switch (s_page) {
     case P_GAIN: {
         int h1 = (bh - GAP) * 55 / 100;
@@ -182,9 +186,25 @@ static void build(const ctl_t *c)
         for (int i = 0; i < PANEL_BANDS; i++)
             grid(GAP, by, bw, bh, c4, r2, i, K_BAND + i, s_band[i].name, s_band[i].sub)->sel = i == c->band;
         break;
-    case P_SCAN:                             /* on the module's ESP32-C6 */
-        grid(GAP, by, bw, bh, p ? 1 : 2, p ? 2 : 1, 0, K_WIFI, "WIFI", "access points, channels")->big = true;
-        grid(GAP, by, bw, bh, p ? 1 : 2, p ? 2 : 1, 1, K_BLE, "BLE", "nearby devices")->big = true;
+    case P_SCAN:                             /* Wi-Fi and BLE run on the module's ESP32-C6 */
+        grid(GAP, by, bw, bh, 2, 2, 0, K_WIFI, "WIFI", p ? "networks" : "access points, channels")->big = true;
+        grid(GAP, by, bw, bh, 2, 2, 1, K_BLE, "BLE", "nearby devices")->big = true;
+        grid(GAP, by, bw, bh, 2, 2, 2, K_SAVE, "SAVE", "keep this channel")->big = true;
+        grid(GAP, by, bw, bh, 2, 2, 3, K_MEMORY, "MEMORY", "tune or scan")->big = true;
+        break;
+    case P_MEM:
+    case P_SAVE:
+        for (int i = 0; i < PANEL_MEMS; i++) {
+            char f[16], sub[24];
+            if (c->mem_hz[i]) {
+                snprintf(f, sizeof f, "%" PRIu32 ".%03" PRIu32, c->mem_hz[i] / 1000000, c->mem_hz[i] / 1000 % 1000);
+                snprintf(sub, sizeof sub, "M%d %s", i + 1, panel_bw_mode(c->mem_bw[i]));
+            } else {
+                snprintf(f, sizeof f, "M%d", i + 1);
+                snprintf(sub, sizeof sub, "empty");
+            }
+            grid(GAP, by, bw, bh, c4, r2, i, K_SLOT + i, f, sub)->sel = c->mem_hz[i] && c->mem_hz[i] == c->freq;
+        }
         break;
     case P_LOOK:
         for (int i = 0; i < LOOKS && i < view_themes(); i++) {
@@ -270,6 +290,13 @@ void panel_open(const ctl_t *c)
 
 void panel_redraw(const ctl_t *c) { show_all(c); }
 
+void panel_open_memory(const ctl_t *c, bool save)
+{
+    s_page = save ? P_SAVE : P_MEM;
+    s_hot = -1;
+    show_all(c);
+}
+
 /* -------------------------------------------------------------------------- touch -- */
 
 static int hit(int x, int y)
@@ -303,6 +330,23 @@ static int act(ctl_t *c, int id, bool *page_change)
     if (id == K_BLE) return CTL_BLE;
     if (id == K_TURN) return CTL_TURN;
     if (id >= K_TILE && id < K_TILE + 8) { s_page = id - K_TILE; *page_change = true; return 0; }
+    if (id == K_MEMORY || id == K_SAVE) { s_page = id == K_SAVE ? P_SAVE : P_MEM; *page_change = true; return 0; }
+    if (id == K_MSCAN) {
+        for (int i = 0; i < PANEL_MEMS; i++) if (c->mem_hz[i]) return CTL_MEM_SCAN;
+        return 0;
+    }
+    if (id >= K_SLOT && id < K_SLOT + PANEL_MEMS) {
+        int i = id - K_SLOT;
+        c->mem = i;
+        *page_change = true;
+        if (s_page == P_SAVE) {
+            c->mem_hz[i] = c->freq;
+            c->mem_bw[i] = (int8_t)c->bw;
+            s_page = P_MEM;                  /* show where it went */
+            return CTL_MEM_SAVE;
+        }
+        return c->mem_hz[i] ? CTL_MEM_TUNE : 0;
+    }
     if (c->gain_n > 1 && (id == K_GAIN_DN || id == K_GAIN_UP)) {
         int g = c->gain_idx;
         if (g == 0) g = nearest_gain(c, 300);            /* leave AGC from the middle */

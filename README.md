@@ -18,6 +18,7 @@ native ESP-IDF firmware drives the dongle over USB.**
   frequency. Tune by touch: tap a signal and it moves to the centre.
 - **Audio** from the kit's speaker connector: broadcast FM (WFM), narrow FM and AM, with volume and
   squelch. A plate on the spectrum shows the mode and lights its speaker while sound plays.
+- **Channel memories**: 8 slots, each a frequency and a mode, and a scanner that stops on activity.
 - **RDS** on broadcast FM: the station's name replaces the volume on that plate, and the serial
   log gets the programme ID, name and RadioText.
 - **ADS-B** at 1090 MHz: a list of aircraft (callsign, altitude, speed, heading, climb rate) and a
@@ -126,7 +127,7 @@ The menu is eight big tiles:
 | **Zoom** | 2.4 MHz, 1.2 MHz, 600 kHz, 300 kHz |
 | **Audio** | the filter, which also picks the mode: WFM 200k, NFM 25k, NFM 12.5k, AM 8k. Volume -/+ (0 is off) and squelch -/+ (0 is open; each step asks for 3 dB more: on FM, of quieting, so a station already on the air opens it; on AM, of level above the noise it has heard) |
 | **Band** | FM, AIR, MARINE, NOAA, 2M, PMR, 70CM, ADS-B |
-| **Scan** | WiFi, BLE |
+| **Scan** | WiFi, BLE; **Save** stores the tuned channel (frequency and filter) in one of 8 memories; **Memory** tunes one, and its **Scan** key hops through them, stopping while the squelch is open and 2 s after. Any touch stops the scan. |
 | **Look** | Studio, PortaPack, Phosphor, Vintage, Neon; **Turn** switches landscape and portrait |
 | **Done** | back to the radio |
 
