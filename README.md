@@ -16,6 +16,8 @@ native ESP-IDF firmware drives the dongle over USB.**
 - **Spectrum and waterfall** across 2.4 MHz of the RTL-SDR's range, with peak hold, a dB scale, a
   shaded passband and an S/N bar meter. Up to three strong signals elsewhere get a marker with their
   frequency. Tune by touch: tap a signal and it moves to the centre.
+- **Audio** from the kit's speaker connector: broadcast FM (WFM), narrow FM and AM, with volume and
+  squelch. A plate on the spectrum shows the mode and lights its speaker while sound plays.
 - **ADS-B** at 1090 MHz: a list of aircraft (callsign, altitude, speed, heading, climb rate) and a
   map with range rings from 5 to 400 km. With a map file on a micro-SD card, the map also shows
   coastlines, lakes, rivers, borders, roads, runways, towns and airports.
@@ -62,6 +64,7 @@ The screenshots come from `tools/preview` with made-up aircraft and neighbours.
 | Waveshare **ESP32-P4-Module-DEV-KIT** | The module carries an ESP32-C6, which runs the Wi-Fi and BLE scanners. |
 | **3.5inch RPi Display** (MPI3501: ILI9486 + XPT2046, four logic chips on the back) | Plugs straight onto the kit's 40-pin header, pin 1 to pin 1. See [Is this my screen?](https://github.com/John-ODell/esp32-p4-3.5-inch-rpi-display#is-this-my-screen) |
 | **RTL-SDR Blog V4** dongle and an antenna | It goes in one of the kit's USB-A ports. Set the **H3 jumper to HOST**. This is the only dongle tested so far. |
+| A small speaker, 8 Ω (optional) | Plugs into the kit's 2-pin speaker connector (MX1.25), driven by the on-board ES8311 codec and NS4150B amplifier. |
 | micro-SD card, FAT32 (optional) | Holds `MAP.BIN` for the ADS-B map, and the CSV logs. |
 
 ## Flash the prebuilt firmware
@@ -119,7 +122,7 @@ The menu is eight big tiles:
 | **Gain** | -/+ through every tuner gain step, or AGC, 15, 30, MAX |
 | **Range** | auto, or the top level and the span, -/+ in 5 dB steps |
 | **Zoom** | 2.4 MHz, 1.2 MHz, 600 kHz, 300 kHz |
-| **Filter** | 200k, 25k, 12.5k, 8k. For now this only shades the passband; there is no audio yet. |
+| **Audio** | the filter, which also picks the mode: WFM 200k, NFM 25k, NFM 12.5k, AM 8k. Volume -/+ (0 is off) and squelch -/+ (0 is open; each step asks for 3 dB more: on FM, of quieting, so a station already on the air opens it; on AM, of level above the noise it has heard) |
 | **Band** | FM, AIR, MARINE, NOAA, 2M, PMR, 70CM, ADS-B |
 | **Scan** | WiFi, BLE |
 | **Look** | Studio, PortaPack, Phosphor, Vintage, Neon; **Turn** switches landscape and portrait |
@@ -195,14 +198,17 @@ rm -f sdkconfig
 idf.py -D SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.rev1" build
 ```
 
-The component manager fetches `esp_hosted` and `esp_wifi_remote` on the first build. These are
-the C6 link, and the versions are pinned in `dependencies.lock`. `tools/build_release.sh` builds
-both chip-revision images into `dist/`, along with `SHA256SUMS` and the Workbench manifest.
+The component manager fetches `esp_hosted`, `esp_wifi_remote` and `esp_codec_dev` on the first
+build. The first two are the C6 link and the third drives the speaker codec. The versions are
+pinned in `dependencies.lock`. `tools/build_release.sh` builds both chip-revision images into
+`dist/`, along with `SHA256SUMS` and the Workbench manifest.
 
 `tools/preview` builds the drawing code on a Mac or Linux PC, feeds it fake stations,
 aircraft and neighbours, and writes a PNG of every screen in every look, landscape and then
 portrait (`portrait-*.png`).
-`tools/adsb_test` runs the ADS-B decoder against known messages.
+`tools/adsb_test` runs the ADS-B decoder against known messages. `tools/demod_test` runs the audio
+demodulator on synthesized FM and AM stations (with a neighbour and a stereo pilot) and checks the
+tone that comes out, and the squelch.
 `tools/capture_log.py PORT SECONDS` resets the kit and prints its serial log. With `--attach` it
 leaves the board running and reattaches if the USB serial port drops out, which suits long runs.
 
@@ -215,6 +221,8 @@ leaves the board running and reattaches if the USB serial port drops out, which 
 | `main/spectrum.c` | Hann window, FFT of 1024 to 4096 points (set by zoom), averaged per frame |
 | `main/view.c`, `main/panel.c` | all receiver and menu drawing, in five looks and both orientations (no ESP-IDF calls) |
 | `main/ui.c` | receiver loop, touch tracker, saved settings, stream recovery, mode switching |
+| `main/demod.c` | audio demodulator: FIR decimation to 480 kS/s, WFM, NFM or AM, 48 kHz out, squelch (no ESP-IDF calls) |
+| `main/audio.c` | ES8311 codec, I2S, and the task that feeds the demodulator from the IQ ring |
 | `main/adsb.c`, `main/adsb_view.c` | ADS-B demodulator and decoder; list and map screens |
 | `main/amap.c`, `main/sdcard.c` | SD-card base map (format in `amap.h`); shared card mount |
 | `main/sdlog.c` | CSV logs: PSRAM ring, writer task, per-boot file numbering |
@@ -224,7 +232,7 @@ leaves the board running and reattaches if the USB serial port drops out, which 
 | `tools/mapgen` | `make_map.py`, which makes `MAP.BIN` |
 | `tests/stage1_stream_test.c` | 20 s USB counter and sample test (copy it over `main/main.c` to run) |
 
-Core 0 runs the USB host and the IQ stream. Core 1 runs the FFT, drawing and touch.
+Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs the FFT, drawing and touch.
 
 ## Measured (chip v1.0, RTL-SDR Blog V4)
 
@@ -247,7 +255,9 @@ Core 0 runs the USB host and the IQ stream. Core 1 runs the FFT, drawing and tou
 
 ## Limits
 
-- **No audio yet.** Filter only shades the passband. FM and AM demodulation are planned.
+- **Audio has not been heard yet.** The demodulator passes its host test, but it has not been run
+  on the kit with a speaker, so its load on the P4 and the sound itself are still to be checked.
+  FM is mono: no stereo yet.
 - Tested only with the RTL-SDR Blog V4 and on chip revision v1.0. The rev3 image is built but has
   not been run on hardware.
 - Portrait has been checked in `tools/preview` only. On the kit, that it comes out the right way up

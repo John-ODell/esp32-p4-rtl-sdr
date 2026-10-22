@@ -21,8 +21,8 @@ static const uint32_t s_zoom_hz[PANEL_ZOOMS] = {2400000, 1200000, 600000, 300000
 static const char *s_zoom_lbl[PANEL_ZOOMS] = {"2.4 MHz", "1.2 MHz", "600 kHz", "300 kHz"};
 static const char *s_zoom_sub[PANEL_ZOOMS] = {"whole span", "2x", "4x", "8x"};
 static const uint32_t s_bw_hz[PANEL_BWS] = {200000, 25000, 12500, 8000};
-static const char *s_bw_lbl[PANEL_BWS] = {"200k", "25k", "12.5k", "8k"};
-static const char *s_bw_sub[PANEL_BWS] = {"broadcast FM", "wide NFM", "narrow FM", "AM airband"};
+static const char *s_bw_sub[PANEL_BWS] = {"200k FM radio", "25k wide", "12.5k narrow", "8k airband"};
+static const char *s_bw_mode[PANEL_BWS] = {"WFM", "NFM", "NFM", "AM"};
 
 typedef struct { const char *name, *sub; uint32_t freq; int bw, zoom; } band_t;
 static const band_t s_band[PANEL_BANDS] = {
@@ -34,6 +34,7 @@ static const band_t s_band[PANEL_BANDS] = {
 
 uint32_t panel_zoom_hz(int i) { return s_zoom_hz[i >= 0 && i < PANEL_ZOOMS ? i : 0]; }
 uint32_t panel_bw_hz(int i) { return s_bw_hz[i >= 0 && i < PANEL_BWS ? i : 0]; }
+const char *panel_bw_mode(int i) { return s_bw_mode[i >= 0 && i < PANEL_BWS ? i : 0]; }
 
 const char *panel_band(int i, uint32_t *freq, int *bw, int *zoom)
 {
@@ -45,7 +46,7 @@ const char *panel_band(int i, uint32_t *freq, int *bw, int *zoom)
 /* --------------------------------------------------------------------------- keys -- */
 
 enum { P_MENU, P_GAIN, P_RANGE, P_ZOOM, P_BW, P_BAND, P_SCAN, P_LOOK };
-static const char *s_title[] = {"CONTROLS", "GAIN", "RANGE", "ZOOM", "FILTER", "BAND", "SCAN", "LOOK"};
+static const char *s_title[] = {"CONTROLS", "GAIN", "RANGE", "ZOOM", "AUDIO", "BAND", "SCAN", "LOOK"};
 #define LOOKS 5
 static const char *s_look_sub[LOOKS] = {"clean blue", "Mayhem style", "green CRT", "walnut and amber", "synthwave"};
 
@@ -55,6 +56,7 @@ enum {
     K_GAIN_DN = K_TILE + 8, K_GAIN_UP, K_GAIN_P,   /* K_GAIN_P + 0..3: presets */
     K_TOP_DN = K_GAIN_P + 4, K_TOP_UP, K_SPAN_DN, K_SPAN_UP, K_AUTO,
     K_ZOOM, K_BW = K_ZOOM + PANEL_ZOOMS, K_BAND = K_BW + PANEL_BWS, K_LOOK = K_BAND + PANEL_BANDS,
+    K_VOL_DN = K_LOOK + LOOKS, K_VOL_UP, K_SQL_DN, K_SQL_UP,
 };
 
 typedef struct {
@@ -125,7 +127,9 @@ static void build(const ctl_t *c)
         else snprintf(v, sizeof v, "%d/%d dB", c->ref_db, c->range_db);
         grid(GAP, y, w, h, c4, r2, 1, K_TILE + P_RANGE, "RANGE", v)->big = true;
         grid(GAP, y, w, h, c4, r2, 2, K_TILE + P_ZOOM, "ZOOM", s_zoom_lbl[c->zoom])->big = true;
-        grid(GAP, y, w, h, c4, r2, 3, K_TILE + P_BW, "FILTER", s_bw_lbl[c->bw])->big = true;
+        if (c->vol) snprintf(v, sizeof v, "%s, vol %d", s_bw_mode[c->bw], c->vol);
+        else snprintf(v, sizeof v, "%s, off", s_bw_mode[c->bw]);
+        grid(GAP, y, w, h, c4, r2, 3, K_TILE + P_BW, "AUDIO", v)->big = true;
         grid(GAP, y, w, h, c4, r2, 4, K_TILE + P_BAND, "BAND", c->band >= 0 ? s_band[c->band].name : "presets")->big = true;
         grid(GAP, y, w, h, c4, r2, 5, K_TILE + P_SCAN, "SCAN", "Wi-Fi, BLE")->big = true;
         grid(GAP, y, w, h, c4, r2, 6, K_TILE + P_LOOK, "LOOK", view_theme_name(view_theme()))->big = true;
@@ -164,10 +168,16 @@ static void build(const ctl_t *c)
         for (int i = 0; i < PANEL_ZOOMS; i++)
             grid(GAP, by, bw, bh, 2, 2, i, K_ZOOM + i, s_zoom_lbl[i], s_zoom_sub[i])->sel = i == c->zoom;
         break;
-    case P_BW:
+    case P_BW: {                             /* filter and mode, then volume and squelch */
+        int hm = p ? (bh - 3 * GAP) / 2 : (bh - 2 * GAP) * 40 / 100, hs = (bh - hm - 2 * GAP) / 2;
         for (int i = 0; i < PANEL_BWS; i++)
-            grid(GAP, by, bw, bh, 2, 2, i, K_BW + i, s_bw_lbl[i], s_bw_sub[i])->sel = i == c->bw;
+            grid(GAP, by, bw, hm, c4, p ? 2 : 1, i, K_BW + i, s_bw_mode[i], s_bw_sub[i])->sel = i == c->bw;
+        snprintf(v, sizeof v, c->vol ? "%d" : "OFF", c->vol);
+        stepper(by + hm + GAP, hs, K_VOL_DN, K_VOL_UP, v, "volume");
+        snprintf(v, sizeof v, c->sql ? "%d" : "OPEN", c->sql);
+        stepper(by + hm + GAP + hs + GAP, hs, K_SQL_DN, K_SQL_UP, v, c->sql ? "squelch" : "squelch off");
         break;
+    }
     case P_BAND:
         for (int i = 0; i < PANEL_BANDS; i++)
             grid(GAP, by, bw, bh, c4, r2, i, K_BAND + i, s_band[i].name, s_band[i].sub)->sel = i == c->band;
@@ -314,6 +324,14 @@ static int act(ctl_t *c, int id, bool *page_change)
         if (id == K_SPAN_UP) c->range_db = clampi(c->range_db + 5, 20, 100);
         if (c->range_auto) { c->range_auto = false; *page_change = true; }
         return CTL_RANGE;
+    }
+    if (id >= K_VOL_DN && id <= K_SQL_UP) {
+        int vol = c->vol, sql = c->sql;
+        if (id == K_VOL_DN) c->vol = clampi(c->vol - 1, 0, 10);
+        if (id == K_VOL_UP) c->vol = clampi(c->vol + 1, 0, 10);
+        if (id == K_SQL_DN) c->sql = clampi(c->sql - 1, 0, 9);
+        if (id == K_SQL_UP) c->sql = clampi(c->sql + 1, 0, 9);
+        return vol != c->vol || sql != c->sql ? CTL_AUDIO : 0;
     }
     if (id == K_AUTO) { c->range_auto = !c->range_auto; *page_change = true; return CTL_RANGE; }
     if (id >= K_ZOOM && id < K_ZOOM + PANEL_ZOOMS) {

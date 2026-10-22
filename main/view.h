@@ -31,6 +31,8 @@ void view_set_span(uint32_t span_hz);
 uint32_t view_span(void);
 int view_hz_per_px(void);
 void view_set_passband(uint32_t hz);         /* shaded filter width around the centre */
+/* plate at the top left of the spectrum: label (NULL = none), live = speaker lit */
+void view_set_audio(const char *label, bool live);
 /* auto: scale follows the noise floor. Otherwise ref = top of the scale, range = height, dBFS. */
 void view_set_range(bool auto_range, float ref_db, float range_db);
 void view_blit(void);                        /* push spectrum + waterfall to the panel */
