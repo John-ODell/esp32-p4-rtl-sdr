@@ -26,7 +26,7 @@ void demod_set_squelch(int level);           /* 0..9 */
 void demod_retuned(void);                    /* new station: RDS starts over */
 
 /* n IQ pairs of unsigned 8-bit samples. Writes up to n / 50 + 1 samples to out, returns how
- * many. Squelched audio comes out as silence. */
+ * many. Squelched audio comes out as silence, faded in and out over 5 ms. */
 int demod_process(const uint8_t *iq, int n, int16_t *out);
 
 float demod_level_db(void);                  /* channel power, dBFS */

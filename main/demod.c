@@ -127,9 +127,16 @@ static float fm_step(float re, float im, float *acc)
     return d;
 }
 
+/* the squelch gate fades over 5 ms instead of switching, so it doesn't click */
+static float s_gate;
+static bool s_was_open;                       /* AM: squelch state at the last sample */
+
 static int16_t to_s16(float v)
 {
-    v *= 0.7f * 32767;
+    float want = s_open ? 1.0f : 0.0f;
+    if (s_gate < want) s_gate = fminf(want, s_gate + 1.0f / 240);
+    else if (s_gate > want) s_gate = fmaxf(want, s_gate - 1.0f / 240);
+    v *= s_gate * 0.7f * 32767;
     return v > 32767 ? 32767 : v < -32767 ? -32767 : (int16_t)lrintf(v);
 }
 
@@ -151,7 +158,7 @@ static int chunk(const uint8_t *iq, int n, int16_t *out)
         for (int i = 0; i < nb; i++) e[i] = s_deemph = e[i] + s_de_a * (s_deemph - e[i]);
         float aud[CHUNK / 50 + 2];
         k = fir_run(&s_w2, nb, aud);
-        for (int i = 0; i < k; i++) out[i] = s_open ? to_s16(aud[i]) : 0;
+        for (int i = 0; i < k; i++) out[i] = to_s16(aud[i]);
     } else {
         int nb = fir_run(&s_n1, na, fir_in(&s_n2));
         float ch[2 * (CHUNK / 50 + 2)];
@@ -166,11 +173,12 @@ static int chunk(const uint8_t *iq, int n, int16_t *out)
                 v -= s_dc;
             } else {
                 float env = sqrtf(re * re + im * im);
-                if (s_dc == 0) s_dc = env;
+                if (s_dc == 0 || (s_open && !s_was_open)) s_dc = env;   /* a carrier that just opened the squelch */
+                s_was_open = s_open;
                 s_dc += (env - s_dc) * 0.001f;             /* the carrier, ~8 Hz */
                 v = s_dc > 1e-6f ? (env - s_dc) / s_dc : 0;  /* modulation depth: built-in AGC */
             }
-            out[i] = s_open ? to_s16(v) : 0;
+            out[i] = to_s16(v);
         }
         if (k) decide(acc / k);
     }

@@ -232,8 +232,9 @@ int main(void)
     tone_case("AM 8k", DEMOD_AM, 8000, am, 1, 0.005, 25, 0, 0);
     tone_case("AM 8k + 8.33k neighbour", DEMOD_AM, 8000, am, 2, 0.005, 20, 2000, -25);
 
-    /* squelch at level 3 (9 dB), per mode: noise alone stays shut; a station already on the air
-     * when the mode is set opens it (FM); a carrier that comes up opens it (AM); it shuts after */
+    /* squelch at level 3 (9 dB), per mode: a station already on the air when the mode is set
+     * opens it (FM); noise alone shuts it; a station that comes up opens it again without a jump
+     * in the audio (the gate fades in); noise shuts it */
     static const struct { const char *name; demod_mode_t m; uint32_t bw; station_t st; } sq[] = {
         {"WFM", DEMOD_WFM, 200000, {0, 0.1, 0, 1000, 50000, 0}},
         {"NFM 25k", DEMOD_NFM, 25000, {0, 0.03, 0, 1000, 3000, 0}},
@@ -246,20 +247,29 @@ int main(void)
         snprintf(name, sizeof name, "squelch %s", sq[i].name);
         demod_set(sq[i].m, sq[i].bw);
         demod_set_squelch(3);
-        if (am) {                            /* AM learns the floor first */
-            make(NULL, 0, 0.01);
+        bool on_at_set = true;
+        if (!am) {
+            make(&sq[i].st, 1, 0.01);
             run(NULL);
+            on_at_set = demod_open();
         }
+        make(NULL, 0, 0.01);                 /* AM learns its floor here */
+        run(NULL);
         make(&sq[i].st, 1, 0.01);
         int k = run(NULL);
         double loud = rms(k / 2, k);
         bool on = demod_open();
+        int from = 0, jump = 0;              /* the first 0.5 ms of sound: the gate fades in, so it starts small */
+        while (from < k && !s_out[from]) from++;
+        for (int j = from; j < k && j < from + 24; j++) if (abs(s_out[j]) > jump) jump = abs(s_out[j]);
         float q_on = demod_quality_db();
         make(NULL, 0, 0.01);
         k = run(NULL);
         double quiet = rms(k / 2, k);
-        printf("%-26s station %5.1f dB %s (rms %5.0f), noise %5.1f dB %s (rms %.0f)\n", name, q_on, on ? "open" : "SHUT",
-               loud, demod_quality_db(), demod_open() ? "OPEN" : "shut", quiet);
+        printf("%-20s station %5.1f dB %s (rms %5.0f), noise %4.1f dB %s, first 0.5 ms peak %d\n", name, q_on,
+               on ? "open" : "SHUT", loud, demod_quality_db(), demod_open() ? "OPEN" : "shut", jump);
+        CHECK(on_at_set, "%s: a station on the air when the mode is set stays shut", name);
+        CHECK(jump < 3000, "%s: sound starts at %d, not faded in", name, jump);
         CHECK(on && loud > 1000, "%s: shut on a station", name);
         CHECK(!demod_open() && quiet == 0, "%s: open on noise", name);
     }
