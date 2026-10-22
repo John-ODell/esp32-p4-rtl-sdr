@@ -122,7 +122,7 @@ The menu is eight big tiles:
 | **Gain** | -/+ through every tuner gain step, or AGC, 15, 30, MAX |
 | **Range** | auto, or the top level and the span, -/+ in 5 dB steps |
 | **Zoom** | 2.4 MHz, 1.2 MHz, 600 kHz, 300 kHz |
-| **Audio** | the filter, which also picks the mode: WFM 200k, NFM 25k, NFM 12.5k, AM 8k. Volume -/+ (0 is off) and squelch -/+ (0 is open; each step opens 3 dB further above the noise floor) |
+| **Audio** | the filter, which also picks the mode: WFM 200k, NFM 25k, NFM 12.5k, AM 8k. Volume -/+ (0 is off) and squelch -/+ (0 is open; each step asks for 3 dB more: on FM, of quieting, so a station already on the air opens it; on AM, of level above the noise it has heard) |
 | **Band** | FM, AIR, MARINE, NOAA, 2M, PMR, 70CM, ADS-B |
 | **Scan** | WiFi, BLE |
 | **Look** | Studio, PortaPack, Phosphor, Vintage, Neon; **Turn** switches landscape and portrait |

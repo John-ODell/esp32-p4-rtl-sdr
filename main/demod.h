@@ -5,8 +5,9 @@
  *   2.4 MS/s --FIR /5--> 480 kS/s --+-- WFM: discriminator, /5, 75 us de-emphasis, /2 (15 kHz)
  *                                   +-- NFM, AM: /5, channel filter /2, discriminator or envelope
  *
- * Squelch compares the channel power with a floor that follows the noise: 0 = always open,
- * level n opens 3n dB above the floor. */
+ * Squelch, 0 = always open, level n opens at 3n dB: on FM, of quieting (how much quieter the
+ * discriminator is than on noise alone); on AM, of channel power above a floor that follows the
+ * noise. */
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -21,7 +22,6 @@ void demod_set(demod_mode_t mode, uint32_t bw_hz);
 demod_mode_t demod_mode(void);
 const char *demod_mode_name(demod_mode_t m);
 void demod_set_squelch(int level);           /* 0..9 */
-void demod_reset_floor(void);                /* after a retune */
 
 /* n IQ pairs of unsigned 8-bit samples. Writes up to n / 50 + 1 samples to out, returns how
  * many. Squelched audio comes out as silence. */
@@ -29,4 +29,5 @@ int demod_process(const uint8_t *iq, int n, int16_t *out);
 
 float demod_level_db(void);                  /* channel power, dBFS */
 float demod_floor_db(void);
+float demod_quality_db(void);                /* what the squelch compares with 3n dB */
 bool demod_open(void);                       /* squelch open */

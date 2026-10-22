@@ -119,7 +119,6 @@ static void show_audio(void)
 static void retune(uint32_t hz)
 {
     sdr_set_freq(hz);
-    audio_retuned();
     view_axis(sdr_freq());
     settings_changed();
 }
@@ -206,7 +205,6 @@ static void panel_event(int ev, int x, int y, int64_t now)
             return;
         }
         sdr_set_freq(f);
-        audio_retuned();
         draw_header(-1);
     }
     if (ch & (CTL_ZOOM | CTL_BW | CTL_RANGE)) ESP_LOGI(TAG, "zoom %d, filter %d, range %s %d/%d", s_ctl.zoom,
@@ -641,8 +639,8 @@ void ui_run(const touch_cal_t *cal)
                 int load, lag;
                 audio_stats(&load, &lag);
                 ESP_LOGI(TAG, "audio %s vol %d sql %d: demod %d%% of real time, lag max %d ms, channel %.1f dBFS "
-                         "(floor %.1f), squelch %s", panel_bw_mode(s_ctl.bw), s_ctl.vol, s_ctl.sql, load, lag,
-                         demod_level_db(), demod_floor_db(), audio_squelch_open() ? "open" : "shut");
+                         "(floor %.1f), squelch %.1f dB, %s", panel_bw_mode(s_ctl.bw), s_ctl.vol, s_ctl.sql, load, lag,
+                         demod_level_db(), demod_floor_db(), demod_quality_db(), audio_squelch_open() ? "open" : "shut");
             }
             b_log = b;
             frames = 0;

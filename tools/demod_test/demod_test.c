@@ -1,7 +1,7 @@
 /* Host test for main/demod.c: FM and AM signals with a 1 kHz tone are synthesized as 2.4 MS/s
  * u8 IQ with noise, an off-channel station and (WFM) a stereo pilot, fed through demod_process
  * in odd-sized pieces, and the audio is checked: the tone's SINAD, what is left of the
- * interferer and the pilot, and the squelch. Build and run: make -C tools/demod_test */
+ * interferer and the pilot, and the squelch in every mode. Build and run: make -C tools/demod_test */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -151,25 +151,37 @@ int main(void)
     tone_case("AM 8k", DEMOD_AM, 8000, am, 1, 0.005, 25, 0, 0);
     tone_case("AM 8k + 8.33k neighbour", DEMOD_AM, 8000, am, 2, 0.005, 20, 2000, -25);
 
-    /* squelch: noise alone stays shut at level 3, a carrier 20 dB up opens it */
-    make(NULL, 0, 0.01);
-    demod_set(DEMOD_NFM, 12500);
-    demod_set_squelch(3);
-    int k = run(NULL);
-    double quiet = rms(k / 2, k);
-    printf("%-26s floor %.1f dBFS, level %.1f, %s, rms %.0f\n", "squelch, noise only", demod_floor_db(), demod_level_db(),
-           demod_open() ? "open" : "shut", quiet);
-    CHECK(!demod_open() && quiet == 0, "squelch open on noise (rms %.0f)", quiet);
-    station_t car[1] = {{0, 0.05, 0, 1000, 1500, 0}};
-    make(car, 1, 0.01);
-    k = run(NULL);
-    double loud = rms(k / 2, k);
-    printf("%-26s level %.1f dBFS, %s, rms %.0f\n", "squelch, carrier", demod_level_db(), demod_open() ? "open" : "shut", loud);
-    CHECK(demod_open() && loud > 1000, "squelch shut on a carrier (rms %.0f)", loud);
-    make(NULL, 0, 0.01);
-    k = run(NULL);
-    printf("%-26s %s\n", "squelch, carrier gone", demod_open() ? "open" : "shut");
-    CHECK(!demod_open(), "squelch stays open after the carrier");
+    /* squelch at level 3 (9 dB), per mode: noise alone stays shut; a station already on the air
+     * when the mode is set opens it (FM); a carrier that comes up opens it (AM); it shuts after */
+    static const struct { const char *name; demod_mode_t m; uint32_t bw; station_t st; } sq[] = {
+        {"WFM", DEMOD_WFM, 200000, {0, 0.1, 0, 1000, 50000, 0}},
+        {"NFM 25k", DEMOD_NFM, 25000, {0, 0.03, 0, 1000, 3000, 0}},
+        {"NFM 12.5k", DEMOD_NFM, 12500, {0, 0.03, 0, 1000, 1500, 0}},
+        {"AM 8k", DEMOD_AM, 8000, {1, 0.03, 0, 1000, 0.5, 0}},
+    };
+    for (int i = 0; i < 4; i++) {
+        char name[40];
+        bool am = sq[i].m == DEMOD_AM;
+        snprintf(name, sizeof name, "squelch %s", sq[i].name);
+        demod_set(sq[i].m, sq[i].bw);
+        demod_set_squelch(3);
+        if (am) {                            /* AM learns the floor first */
+            make(NULL, 0, 0.01);
+            run(NULL);
+        }
+        make(&sq[i].st, 1, 0.01);
+        int k = run(NULL);
+        double loud = rms(k / 2, k);
+        bool on = demod_open();
+        float q_on = demod_quality_db();
+        make(NULL, 0, 0.01);
+        k = run(NULL);
+        double quiet = rms(k / 2, k);
+        printf("%-26s station %5.1f dB %s (rms %5.0f), noise %5.1f dB %s (rms %.0f)\n", name, q_on, on ? "open" : "SHUT",
+               loud, demod_quality_db(), demod_open() ? "OPEN" : "shut", quiet);
+        CHECK(on && loud > 1000, "%s: shut on a station", name);
+        CHECK(!demod_open() && quiet == 0, "%s: open on noise", name);
+    }
 
     printf(fails ? "%d FAILED\n" : "all passed\n", fails);
     return fails != 0;
