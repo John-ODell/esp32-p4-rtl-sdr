@@ -54,18 +54,18 @@ The screenshots come from `tools/preview` with made-up aircraft and neighbours.
 <table align="center">
   <tr>
     <td align="center"><img src="docs/images/esp32-p4-module-dev-kit.jpg" alt="Waveshare ESP32-P4-Module-DEV-KIT" height="122"></td>
-    <td align="center"><img src="docs/images/3.5inch-rpi-display.jpg" alt="3.5inch RPi Display, front and back, with stylus" height="280"></td>
+    <td align="center"><img src="docs/images/mhs-3.5inch-display-ips.jpg" alt="Back of the MHS-3.5inch Display-IPS: one square chip, the XPT2046 touch controller and the 40-pin socket" height="280"></td>
   </tr>
   <tr>
     <td align="center">Waveshare ESP32-P4-Module-DEV-KIT</td>
-    <td align="center">3.5inch RPi Display (MPI3501)</td>
+    <td align="center">MHS-3.5inch Display-IPS (the tested screen)</td>
   </tr>
 </table>
 
 | Part | Notes |
 |---|---|
 | Waveshare **ESP32-P4-Module-DEV-KIT** | The module carries an ESP32-C6, which runs the Wi-Fi and BLE scanners. |
-| **3.5inch RPi Display** (MPI3501: ILI9486 + XPT2046, four logic chips on the back) | Plugs straight onto the kit's 40-pin header, pin 1 to pin 1. See [Is this my screen?](https://github.com/John-ODell/esp32-p4-3.5-inch-rpi-display#is-this-my-screen) |
+| **MHS-3.5inch Display-IPS** (480×320, ILI9486 commands over 16-bit SPI, XPT2046 resistive touch) | The tested screen. Plugs straight onto the kit's 40-pin header, pin 1 to pin 1. The older MPI3501 "3.5inch RPi Display" (four logic chips on the back) uses the same protocol but hasn't been tested. See [Is this my screen?](https://github.com/John-ODell/esp32-p4-3.5-inch-rpi-display#is-this-my-screen) |
 | **RTL-SDR Blog V4** dongle and an antenna | It goes in one of the kit's USB-A ports. Set the **H3 jumper to HOST**. This is the only dongle tested so far. |
 | A small speaker, 8 Ω (optional) | Plugs into the kit's 2-pin speaker connector (MX1.25), driven by the on-board ES8311 codec and NS4150B amplifier. |
 | micro-SD card, FAT32 (optional) | Holds `MAP.BIN` for the ADS-B map, and the CSV logs. |
