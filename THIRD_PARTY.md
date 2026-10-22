@@ -15,6 +15,6 @@
   Natural Earth is public domain. OpenStreetMap data is © OpenStreetMap contributors and
   available under the ODbL, so a `MAP.BIN` with OSM layers carries that attribution.
 - `docs/images/esp32-p4-module-dev-kit.jpg`: product photo from Waveshare's
-  ESP32-P4-Module-DEV-KIT page. `docs/images/3.5inch-rpi-display.jpg`: product photo from Jence's
-  3.5inch RPi Display page. Both are used only to identify the hardware. They are not covered by
-  this repository's license. The other images in `docs/images` are renders from `tools/preview`.
+  ESP32-P4-Module-DEV-KIT page, used only to identify the hardware. It is not covered by this
+  repository's license. `docs/images/mhs-3.5inch-display-ips.jpg` is the author's own photo of the
+  tested screen. The other images in `docs/images` are renders from `tools/preview`.
