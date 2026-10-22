@@ -1,4 +1,6 @@
 # Unreleased
+- Animated boot splash in the saved look: the name in large letters over a band that tunes in,
+  with the boot status lines on the same background. `tools/preview` renders it for every look.
 - Audio out of the kit's speaker connector (ES8311): WFM, NFM and AM, picked by the filter, with
   volume and squelch on the new AUDIO page (it replaces FILTER) and a mode plate on the spectrum.
   `tools/demod_test` checks the demodulator on a PC. Not yet heard on hardware.

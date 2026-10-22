@@ -341,6 +341,19 @@ static void render_all(const char *dir, const char *tag, uint32_t freq, int pres
         snprintf(path, sizeof path, "%s/%s%s-ble.png", dir, tag, view_theme_name(t));
         write_png(path, fb, LCD_W, LCD_H);
     }
+    for (int t = 0; t < n; t++) {           /* boot splash: halfway, then tuned with status lines */
+        view_set_theme(t);
+        char path[512];
+        for (int i = 0; i <= 6; i++) view_splash(i, 15, "RTL-SDR Blog V4 receiver");
+        view_splash_line(LCD_H - 24, "hold screen to recalibrate", SPLASH_DIM);
+        snprintf(path, sizeof path, "%s/%s%s-splash-mid.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
+        view_splash(0, 1, "RTL-SDR Blog V4 receiver");
+        view_splash_line(view_splash_text_y(), "USB link OK: 4.80 MB/s, 0 bytes lost", SPLASH_OK);
+        view_splash_line(view_splash_text_y() + 32, "RTL-SDR Blog V4 (R828D)", SPLASH_OK);
+        snprintf(path, sizeof path, "%s/%s%s-splash.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
+    }
     char path[512];
     snprintf(path, sizeof path, "%s/%sthemes.png", dir, tag);
     write_png(path, sheet, SW, SH);

@@ -179,6 +179,7 @@ static uint16_t btn_text(bool on);
 
 void view_init(uint32_t sample_rate)
 {
+    if (s_hdr) return;                       /* main.c starts it early for the splash */
     s_rate = s_span = sample_rate;
     set_steps();
     s_hdr = BIG_ALLOC(LCD_LONG * MAX_HDR_H * 2);
@@ -792,6 +793,116 @@ void view_blit(void)
 {
     view_blit_spectrum();
     view_blit_waterfall();
+}
+
+/* ------------------------------------------------------------------------ splash -- */
+
+/* Boot screen in the current look: the name in large letters, then a made-up band tuning in.
+ * A sweep runs left to right, five stations rise out of the noise behind it, and the waterfall
+ * under them fills from the top. Drawn into the waterfall buffer (the receiver clears it). */
+#define SPL_SPEC 70
+#define SPL_WF   40
+
+static int spl_top(void) { return (LCD_H - 24 - 268) / 2; }       /* the block over the footer line */
+static int spl_band_y(void) { return spl_top() + 100; }
+int view_splash_text_y(void) { return spl_band_y() + SPL_SPEC + 2 + SPL_WF + 8; }
+
+static float noise01(uint32_t n)
+{
+    n *= 2654435761u;
+    n ^= n >> 15;
+    n *= 2246822519u;
+    n ^= n >> 13;
+    return (n & 0xFFFF) / 65535.0f;
+}
+
+/* dB above the floor at column x, time t (0..1) */
+static float spl_db(int x, float t)
+{
+    static const float at[5] = {0.16f, 0.33f, 0.5f, 0.69f, 0.85f}, hi[5] = {22, 13, 34, 17, 26}, wd[5] = {5, 3, 9, 4, 6};
+    float u = (float)x / LCD_W, db = 3 * noise01((uint32_t)(x * 7919 + (int)(t * 40) * 104729));
+    for (int k = 0; k < 5; k++) {
+        float g = (t * 1.6f - 0.1f * k) * 2.5f, d = (u - at[k]) * LCD_W / wd[k];
+        g = g < 0 ? 0 : g > 1 ? 1 : g;
+        db += hi[k] * g * expf(-d * d / 2);
+    }
+    return db;
+}
+
+static uint16_t spl_bg(int y)
+{
+    uint16_t bg = T->hdr == HDR_VINTAGE ? RGB565(30, 18, 8) : T->bg;
+    return T->bg_top ? rpi_mix565(T->bg_top, bg, y * 256 / LCD_H) : bg;
+}
+
+static uint16_t spl_fg(void) { return T->hdr == HDR_VINTAGE ? T->trace : T->txt; }
+
+void view_splash_line(int y, const char *s, int tone)
+{
+    static const uint16_t tones[2] = {RGB565(60, 230, 90), RGB565(255, 70, 50)};
+    uint16_t *px = s_wf + y * LCD_W;
+    rpi_canvas_t c = {px, LCD_W, 16};
+    for (int r = 0; r < 16; r++) rpi_cv_fill(&c, 0, r, LCD_W, 1, spl_bg(y + r));
+    int x = (LCD_W - rpi_cv_text_w(s, 1)) / 2;
+    rpi_cv_text(&c, x < 0 ? 0 : x, 0, s, tone == SPLASH_DIM ? T->dim : tone >= SPLASH_OK ? tones[tone - SPLASH_OK] : spl_fg(), 1);
+    rpi_lcd_blit(0, y, LCD_W, 16, px);
+}
+
+void view_splash(int frame, int frames, const char *sub)
+{
+    uint16_t *px = s_wf;
+    rpi_canvas_t c = {px, LCD_W, LCD_H};
+    const float p = frames > 1 ? (float)frame / (frames - 1) : 1;
+    const int by = spl_band_y(), wy = by + SPL_SPEC + 2;
+    if (frame == 0) {
+        for (int y = 0; y < LCD_H; y++) rpi_cv_fill(&c, 0, y, LCD_W, 1, spl_bg(y));
+        /* "P4 SDR" at four times the font: drawn at 2x into the spectrum buffer, then doubled,
+         * over a soft halo */
+        const char *name = "P4 SDR";
+        int tw = rpi_cv_text_w(name, 2), th = 32, lx = (LCD_W - 2 * tw) / 2, ly = spl_top();
+        rpi_canvas_t t = {s_spec, tw, th};
+        rpi_cv_fill(&t, 0, 0, tw, th, 0);
+        rpi_cv_text(&t, 0, 0, name, 1, 2);
+        for (int pass = 0; pass < 2; pass++)
+            for (int y = 0; y < th; y++) {
+                uint16_t halo = rpi_mix565(spl_bg(ly + 2 * y), T->trace2, 70);
+                for (int x = 0; x < tw; x++) {
+                    if (!s_spec[y * tw + x]) continue;
+                    if (pass == 0) rpi_cv_fill(&c, lx + 2 * x - 3, ly + 2 * y - 3, 8, 8, halo);
+                    else rpi_cv_fill(&c, lx + 2 * x, ly + 2 * y, 2, 2, T->freq);
+                }
+            }
+        rpi_cv_text(&c, (LCD_W - rpi_cv_text_w(sub, 1)) / 2, ly + 64 + 12, sub, spl_fg(), 1);
+    }
+    /* the band: background, sweep glow, trace and fill up to the sweep */
+    const int sweep = (int)(p * 1.25f * LCD_W);
+    for (int y = 0; y < SPL_SPEC; y++) rpi_cv_fill(&c, 0, by + y, LCD_W, 1, T->bg);
+    for (int x = 0; x < LCD_W; x++) {
+        if (x > sweep) continue;
+        int h = (int)(spl_db(x, p) * (SPL_SPEC - 4) / 40);
+        if (h > SPL_SPEC - 2) h = SPL_SPEC - 2;
+        int top = by + SPL_SPEC - 1 - h;
+        for (int y = top + 1; y < by + SPL_SPEC; y++)
+            px[y * LCD_W + x] = rpi_mix565(T->fill_t, T->fill_b, (y - by) * 256 / SPL_SPEC);
+        px[top * LCD_W + x] = T->trace;
+        int d = sweep - x;                   /* fresh columns glow */
+        if (d < 24)
+            for (int y = by; y < top; y++) px[y * LCD_W + x] = rpi_mix565(px[y * LCD_W + x], T->trace2, (24 - d) * 4);
+    }
+    if (p >= 0.8f)                           /* tuned: the centre line */
+        for (int y = by; y < by + SPL_SPEC; y++) px[y * LCD_W + LCD_W / 2] = T->center;
+    rpi_cv_fill(&c, 0, by + SPL_SPEC, LCD_W, 2, T->grid_c);
+    /* waterfall: row r is the band as it was r / 40 earlier, newest on top, so the stations
+     * fade in down it */
+    for (int r = 0; r < SPL_WF; r++) {
+        float tr = p - r * (1.0f / 40);
+        for (int x = 0; x < LCD_W; x++) {
+            int v = tr < 0 ? 0 : (int)(spl_db(x, tr) * 255 / 34);
+            px[(wy + r) * LCD_W + x] = s_lut[v > 255 ? 255 : v];
+        }
+    }
+    if (frame == 0) rpi_lcd_blit(0, 0, LCD_W, LCD_H, px);
+    else rpi_lcd_blit(0, by, LCD_W, SPL_SPEC + 2 + SPL_WF, px + by * LCD_W);
 }
 
 void view_message(const char *a, const char *b)

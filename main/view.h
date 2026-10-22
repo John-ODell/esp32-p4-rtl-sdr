@@ -39,6 +39,14 @@ void view_blit(void);                        /* push spectrum + waterfall to the
 void view_blit_spectrum(void);               /* the two halves, to poll touch in between */
 void view_blit_waterfall(void);
 void view_message(const char *a, const char *b);
+/* Boot splash in the current look (view_init and view_set_theme first): frame 0 draws the whole
+ * screen, later frames only the animated band. sub: the line under the name. Text below the
+ * band starts at view_splash_text_y(). */
+void view_splash(int frame, int frames, const char *sub);
+int view_splash_text_y(void);
+/* One centred 16-pixel line of text at y on the splash's background. */
+enum { SPLASH_TEXT, SPLASH_DIM, SPLASH_OK, SPLASH_BAD };
+void view_splash_line(int y, const char *s, int tone);
 int view_button_at(int x, int y);            /* VIEW_* under a header touch, or -1 */
 int view_tune_y(void);                       /* touches at or below this row tune */
 float view_floor(void);
