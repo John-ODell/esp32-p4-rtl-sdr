@@ -1,13 +1,15 @@
 /* Host test for main/demod.c: FM and AM signals with a 1 kHz tone are synthesized as 2.4 MS/s
  * u8 IQ with noise, an off-channel station and (WFM) a stereo pilot, fed through demod_process
  * in odd-sized pieces, and the audio is checked: the tone's SINAD, what is left of the
- * interferer and the pilot, and the squelch in every mode. Build and run: make -C tools/demod_test */
+ * interferer and the pilot, and the squelch in every mode. A full broadcast station (audio, pilot,
+ * RDS groups) checks the RDS decoder's PI, station name and RadioText. Build and run: make -C tools/demod_test */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include "demod.h"
+#include "rds.h"
 
 static int fails;
 #define CHECK(c, ...) do { if (!(c)) { fails++; printf("FAIL: " __VA_ARGS__); printf("\n"); } } while (0)
@@ -129,6 +131,85 @@ static double rms(int from, int n)
     return sqrt(a / (n - from));
 }
 
+
+/* ------------------------------------------------------------------ RDS station -- */
+
+static int s_bits[16384], s_nbits;
+
+static void put_block(uint16_t d, uint16_t ofs)
+{
+    uint32_t w = (uint32_t)d << 10;
+    for (int i = 25; i >= 10; i--)
+        if (w >> i & 1) w ^= 0x5B9u << (i - 10);
+    w = (uint32_t)d << 10 | ((w & 0x3FF) ^ ofs);
+    for (int i = 25; i >= 0; i--) s_bits[s_nbits++] = w >> i & 1;
+}
+
+/* groups 0A (station name) and 2A (RadioText; 2B with two letters a group if b2) over and over,
+ * differentially encoded */
+static void rds_bits(uint16_t pi, const char *ps, const char *rt, bool b2)
+{
+    enum { A = 0x0FC, B = 0x198, C = 0x168, D = 0x1B4, PTY = 10 };
+    char t[64];
+    memset(t, ' ', sizeof t);
+    memcpy(t, rt, strlen(rt));
+    int per = b2 ? 2 : 4, rsegs = ((int)strlen(rt) + per - 1) / per;
+    s_nbits = 0;
+    while (s_nbits + 26 * 4 * (4 + rsegs) < (int)(sizeof s_bits / sizeof *s_bits)) {
+        for (int g = 0; g < 4; g++) {
+            put_block(pi, A);
+            put_block(PTY << 5 | g, B);
+            put_block(0xE0CD, C);
+            put_block((uint16_t)(ps[2 * g] << 8 | ps[2 * g + 1]), D);
+        }
+        for (int g = 0; g < rsegs; g++) {
+            put_block(pi, A);
+            if (b2) {
+                put_block(2 << 12 | 1 << 11 | PTY << 5 | g, B);
+                put_block(pi, 0x350);        /* C' */
+                put_block((uint16_t)(t[2 * g] << 8 | t[2 * g + 1]), D);
+            } else {
+                put_block(2 << 12 | PTY << 5 | g, B);
+                put_block((uint16_t)(t[4 * g] << 8 | t[4 * g + 1]), C);
+                put_block((uint16_t)(t[4 * g + 2] << 8 | t[4 * g + 3]), D);
+            }
+        }
+    }
+    for (int i = 1; i < s_nbits; i++) s_bits[i] ^= s_bits[i - 1];
+}
+
+/* seconds of a broadcast station with RDS through the demodulator; noise per I and Q, and the
+ * station's clock off from ours by ppm */
+static void rds_case(const char *name, double secs, double noise, double rds_dev, double ppm, bool b2)
+{
+    const char *ps = "P4  SDR!", *rt = "HELLO FROM THE P4 SDR\r";
+    rds_bits(0x54A8, ps, rt, b2);
+    demod_set(DEMOD_WFM, 200000);
+    demod_set_squelch(0);
+    double ph = 0, t0 = 0.37e-3;             /* start part-way into a bit */
+    for (int done = 0; done < secs * FS; done += N) {
+        for (int n = 0; n < N; n++) {
+            double t = t0 + (double)(done + n) / FS;
+            double ts = t * (1 + ppm * 1e-6);
+            int k = (int)(ts * 1187.5);
+            double rds = (s_bits[k % s_nbits] ? 1 : -1) * sin(2 * M_PI * (ts * 1187.5 - k));
+            double mpx = 0.5 * sin(2 * M_PI * 1000 * t) + 0.1 * sin(2 * M_PI * 19000 * ts) +
+                         rds_dev / 75000 * rds * cos(2 * M_PI * 57000 * ts);
+            ph += 2 * M_PI * 75000 * mpx / FS;
+            s_iq[2 * n] = q8(0.3 * cos(ph) + noise * gauss());
+            s_iq[2 * n + 1] = q8(0.3 * sin(ph) + noise * gauss());
+        }
+        run(NULL);
+    }
+    rds_info_t r;
+    rds_get(&r);
+    printf("%-26s %s, PI %04X, PS \"%s\", RT \"%s\", %u blocks, %u bad\n", name, r.sync ? "sync" : "NO SYNC", r.pi,
+           r.has_ps ? r.ps : "", r.has_rt ? r.rt : "", (unsigned)r.blocks, (unsigned)r.bad_blocks);
+    CHECK(r.has_pi && r.pi == 0x54A8, "%s: PI", name);
+    CHECK(r.has_ps && !strcmp(r.ps, ps), "%s: PS \"%s\"", name, r.ps);
+    CHECK(r.has_rt && !strcmp(r.rt, "HELLO FROM THE P4 SDR"), "%s: RadioText \"%s\"", name, r.rt);
+}
+
 int main(void)
 {
     srand(1);
@@ -182,6 +263,10 @@ int main(void)
         CHECK(on && loud > 1000, "%s: shut on a station", name);
         CHECK(!demod_open() && quiet == 0, "%s: open on noise", name);
     }
+
+    rds_case("RDS, strong, 100 ppm off", 6, 0.02, 3000, 100, false);
+    rds_case("RDS, weak, 30 ppm off", 8, 0.08, 2000, 30, false);
+    rds_case("RDS, RadioText as 2B", 8, 0.02, 3000, 0, true);
 
     printf(fails ? "%d FAILED\n" : "all passed\n", fails);
     return fails != 0;

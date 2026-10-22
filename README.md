@@ -18,6 +18,8 @@ native ESP-IDF firmware drives the dongle over USB.**
   frequency. Tune by touch: tap a signal and it moves to the centre.
 - **Audio** from the kit's speaker connector: broadcast FM (WFM), narrow FM and AM, with volume and
   squelch. A plate on the spectrum shows the mode and lights its speaker while sound plays.
+- **RDS** on broadcast FM: the station's name replaces the volume on that plate, and the serial
+  log gets the programme ID, name and RadioText.
 - **ADS-B** at 1090 MHz: a list of aircraft (callsign, altitude, speed, heading, climb rate) and a
   map with range rings from 5 to 400 km. With a map file on a micro-SD card, the map also shows
   coastlines, lakes, rivers, borders, roads, runways, towns and airports.
@@ -208,7 +210,8 @@ aircraft and neighbours, and writes a PNG of every screen in every look, landsca
 portrait (`portrait-*.png`).
 `tools/adsb_test` runs the ADS-B decoder against known messages. `tools/demod_test` runs the audio
 demodulator on synthesized FM and AM stations (with a neighbour and a stereo pilot) and checks the
-tone that comes out, and the squelch.
+tone that comes out and the squelch. It also builds a broadcast station with RDS groups and
+checks the decoded ID, name and RadioText, with the station's clock up to 100 ppm off.
 `tools/capture_log.py PORT SECONDS` resets the kit and prints its serial log. With `--attach` it
 leaves the board running and reattaches if the USB serial port drops out, which suits long runs.
 
@@ -222,6 +225,8 @@ leaves the board running and reattaches if the USB serial port drops out, which 
 | `main/view.c`, `main/panel.c` | all receiver and menu drawing, in five looks and both orientations (no ESP-IDF calls) |
 | `main/ui.c` | receiver loop, touch tracker, saved settings, stream recovery, mode switching |
 | `main/demod.c` | audio demodulator: FIR decimation to 480 kS/s, WFM, NFM or AM, 48 kHz out, squelch (no ESP-IDF calls) |
+| `main/rds.c` | RDS: 57 kHz down-mix, bit timing, block sync, station name and RadioText (no ESP-IDF calls) |
+| `main/dsp.c` | the FIR filters and atan2 that `demod.c` and `rds.c` share |
 | `main/audio.c` | ES8311 codec, I2S, and the task that feeds the demodulator from the IQ ring |
 | `main/adsb.c`, `main/adsb_view.c` | ADS-B demodulator and decoder; list and map screens |
 | `main/amap.c`, `main/sdcard.c` | SD-card base map (format in `amap.h`); shared card mount |
@@ -257,7 +262,8 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
 
 - **Audio has not been heard yet.** The demodulator passes its host test, but it has not been run
   on the kit with a speaker, so its load on the P4 and the sound itself are still to be checked.
-  FM is mono: no stereo yet.
+  FM is mono, because the kit has one speaker output. RDS has only been decoded from synthesized
+  stations so far.
 - Tested only with the RTL-SDR Blog V4 and on chip revision v1.0. The rev3 image is built but has
   not been run on hardware.
 - Portrait has been checked in `tools/preview` only. On the kit, that it comes out the right way up
