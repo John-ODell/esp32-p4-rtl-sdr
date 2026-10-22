@@ -1,3 +1,10 @@
+# Unreleased
+- Neon look (violet, cyan and magenta), the fifth in MENU › LOOK.
+- Signal markers: up to three strong signals outside the passband are labelled with their frequency.
+- The S/N readout is a ten-segment bar meter with the dB figure.
+- Portrait mode (MENU › LOOK › TURN), USB ports up, with a layout for every screen. Saved across
+  reboots; touch calibration is turned in software. Not yet checked on hardware.
+
 # 1.1.0 (2026-10-18)
 - CSV logs on the SD card: ADS-B aircraft, Wi-Fi networks and BLE devices go to `LOGS/` while
   each mode is open, with a REC marker in the header.

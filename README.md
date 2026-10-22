@@ -9,12 +9,13 @@ native ESP-IDF firmware drives the dongle over USB.**
 > It holds the screen driver on its own, plus a small flash-and-test tool. It is MIT licensed
 > and needs no dongle. This repository is the full radio tool built on that driver.
 
-<p align="center"><img src="docs/images/looks.png" alt="Receiver and menu in the four looks" width="640"></p>
+<p align="center"><img src="docs/images/looks.png" alt="Receiver and menu in the five looks" width="640"></p>
 
 ## What it does
 
-- **Spectrum and waterfall** across 2.4 MHz of the RTL-SDR's range, with peak hold, a dB scale and
-  a shaded passband showing S/N. Tune by touch: tap a signal and it moves to the centre.
+- **Spectrum and waterfall** across 2.4 MHz of the RTL-SDR's range, with peak hold, a dB scale, a
+  shaded passband and an S/N bar meter. Up to three strong signals elsewhere get a marker with their
+  frequency. Tune by touch: tap a signal and it moves to the centre.
 - **ADS-B** at 1090 MHz: a list of aircraft (callsign, altitude, speed, heading, climb rate) and a
   map with range rings from 5 to 400 km. With a map file on a micro-SD card, the map also shows
   coastlines, lakes, rivers, borders, roads, runways, towns and airports.
@@ -24,7 +25,9 @@ native ESP-IDF firmware drives the dongle over USB.**
   signal and advert count.
 - **Logging to the SD card**: with a card in, ADS-B, Wi-Fi and BLE write what they hear to CSV
   files you can open in a spreadsheet.
-- **Four looks**: Studio, PortaPack, Phosphor and Vintage.
+- **Five looks**: Studio, PortaPack, Phosphor, Vintage and Neon.
+- **Landscape or portrait.** Portrait stands the kit up with its USB ports, and the dongle, at the
+  top. Every screen has a portrait layout.
 - Big touch keys made for a resistive panel. They light up under your finger and fire when you
   lift it. Settings are saved to flash.
 
@@ -119,11 +122,20 @@ The menu is eight big tiles:
 | **Filter** | 200k, 25k, 12.5k, 8k. For now this only shades the passband; there is no audio yet. |
 | **Band** | FM, AIR, MARINE, NOAA, 2M, PMR, 70CM, ADS-B |
 | **Scan** | WiFi, BLE |
-| **Look** | Studio, PortaPack, Phosphor, Vintage |
+| **Look** | Studio, PortaPack, Phosphor, Vintage, Neon; **Turn** switches landscape and portrait |
 | **Done** | back to the radio |
 
 Every mode (ADS-B, Wi-Fi, BLE) takes over the whole screen and pauses the receiver. EXIT
 starts the receiver again.
+
+### Portrait
+
+**Look › Turn** switches to portrait: hold the kit with its USB-A and Ethernet ports at the top. The
+step keys move to a row under the frequency, the menu stands two tiles wide, and the ADS-B and
+scanner keys sit in a row under their title. The choice is saved and used from the boot screen on.
+Touch calibration is kept in landscape and turned in software, so no recalibration is needed.
+
+<p align="center"><img src="docs/images/portrait.png" alt="Portrait: receiver in the Neon look, menu, ADS-B map and Wi-Fi list" width="640"></p>
 
 ## ADS-B map on a micro-SD card
 
@@ -188,7 +200,8 @@ the C6 link, and the versions are pinned in `dependencies.lock`. `tools/build_re
 both chip-revision images into `dist/`, along with `SHA256SUMS` and the Workbench manifest.
 
 `tools/preview` builds the drawing code on a Mac or Linux PC, feeds it fake stations,
-aircraft and neighbours, and writes a PNG of every screen in every look.
+aircraft and neighbours, and writes a PNG of every screen in every look, landscape and then
+portrait (`portrait-*.png`).
 `tools/adsb_test` runs the ADS-B decoder against known messages.
 `tools/capture_log.py PORT SECONDS` resets the kit and prints its serial log. With `--attach` it
 leaves the board running and reattaches if the USB serial port drops out, which suits long runs.
@@ -200,7 +213,7 @@ leaves the board running and reattaches if the USB serial port drops out, which 
 | `main/main.c` | boot, splash, calibration, link check |
 | `main/sdr.c` | dongle open, tune and gain; `read_async` into a 1 MB PSRAM IQ ring |
 | `main/spectrum.c` | Hann window, FFT of 1024 to 4096 points (set by zoom), averaged per frame |
-| `main/view.c`, `main/panel.c` | all receiver and menu drawing, in four looks (no ESP-IDF calls) |
+| `main/view.c`, `main/panel.c` | all receiver and menu drawing, in five looks and both orientations (no ESP-IDF calls) |
 | `main/ui.c` | receiver loop, touch tracker, saved settings, stream recovery, mode switching |
 | `main/adsb.c`, `main/adsb_view.c` | ADS-B demodulator and decoder; list and map screens |
 | `main/amap.c`, `main/sdcard.c` | SD-card base map (format in `amap.h`); shared card mount |
@@ -237,6 +250,8 @@ Core 0 runs the USB host and the IQ stream. Core 1 runs the FFT, drawing and tou
 - **No audio yet.** Filter only shades the passband. FM and AM demodulation are planned.
 - Tested only with the RTL-SDR Blog V4 and on chip revision v1.0. The rev3 image is built but has
   not been run on hardware.
+- Portrait has been checked in `tools/preview` only. On the kit, that it comes out the right way up
+  and that touches land in place are still to be confirmed.
 - Wi-Fi scanning covers 2.4 GHz only, because the C6 has no 5 GHz radio.
 - The kit's USB-A power is always on, so software cannot power-cycle a hung dongle. Unplug it and
   plug it back in.
