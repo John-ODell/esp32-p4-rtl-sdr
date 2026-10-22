@@ -1,4 +1,5 @@
 #pragma once
+#include <stdbool.h>
 #include <stdint.h>
 #include <stddef.h>
 #include "esp_err.h"
@@ -14,3 +15,6 @@ esp_err_t rpi_lcd_blit(int x, int y, int w, int h, const uint16_t *pix);
 esp_err_t rpi_lcd_set_window(int x0, int y0, int x1, int y1);   /* then rpi_lcd_push_pixels_be */
 esp_err_t rpi_lcd_push_pixels_be(const uint8_t *be_bytes, size_t nbytes);
 spi_host_device_t rpi_lcd_spi_host(void);
+/* 320x480 with the kit's USB ports up, or back to 480x320. Sets LCD_W/LCD_H (pins.h). Touch
+ * calibration stays in landscape; touch_cal_map turns points to match. */
+esp_err_t rpi_lcd_set_portrait(bool on);

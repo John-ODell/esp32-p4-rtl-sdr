@@ -22,13 +22,23 @@
 #define NAVG 24
 #define NFFT 1024
 
-static uint16_t fb[LCD_H][LCD_W];
+static uint16_t fb[LCD_LONG * LCD_SHORT];   /* LCD_W x LCD_H, either way round */
+#define FB(x, y) fb[(y) * LCD_W + (x)]
+
+int rpi_lcd_w = LCD_LONG, rpi_lcd_h = LCD_SHORT;
+
+esp_err_t rpi_lcd_set_portrait(bool on)
+{
+    rpi_lcd_w = on ? LCD_SHORT : LCD_LONG;
+    rpi_lcd_h = on ? LCD_LONG : LCD_SHORT;
+    return ESP_OK;
+}
 
 esp_err_t rpi_lcd_fill_rect(int x, int y, int w, int h, uint16_t c)
 {
     for (int j = y; j < y + h; j++)
         for (int i = x; i < x + w; i++)
-            if (i >= 0 && i < LCD_W && j >= 0 && j < LCD_H) fb[j][i] = c;
+            if (i >= 0 && i < LCD_W && j >= 0 && j < LCD_H) FB(i, j) = c;
     return ESP_OK;
 }
 
@@ -36,7 +46,7 @@ esp_err_t rpi_lcd_blit(int x, int y, int w, int h, const uint16_t *p)
 {
     if (x < 0 || y < 0 || x + w > LCD_W || y + h > LCD_H) return ESP_ERR_INVALID_ARG;
     for (int j = 0; j < h; j++)
-        for (int i = 0; i < w; i++) fb[y + j][x + i] = p[j * w + i];
+        for (int i = 0; i < w; i++) FB(x + i, y + j) = p[j * w + i];
     return ESP_OK;
 }
 
@@ -133,18 +143,26 @@ static const char *gain_label(int i)
     return b;
 }
 
-/* usage: preview OUT_DIR [freq_hz] [pressed_button]
- * Writes OUT_DIR/<theme>.png and <theme>-controls.png for every theme, and OUT_DIR/themes.png. */
-int main(int argc, char **argv)
+/* centre of top-bar key i of n on the ADS-B and scanner screens (lx: its landscape centre) */
+static int key_cx(int i, int n, int lx)
 {
-    const char *dir = argc > 1 ? argv[1] : ".";
-    uint32_t freq = argc > 2 ? (uint32_t)strtoul(argv[2], NULL, 10) : 100000000;
-    int pressed = argc > 3 ? atoi(argv[3]) : -1;
+    if (!LCD_PORTRAIT) return lx;
+    int w = (LCD_W - 6 * (n + 1)) / n;
+    return 6 + i * (w + 6) + w / 2;
+}
+#define KEY_CY (LCD_PORTRAIT ? 66 : 20)
+
+/* Every screen in every look, file names starting with tag. */
+static void render_all(const char *dir, const char *tag, uint32_t freq, int pressed)
+{
     static uint8_t iq[NAVG * 1024 * 2];
     static float db[NFFT_MAX];
-    spectrum_init();
-    view_init(RATE);
-    panel_init();
+    static bool once;
+    if (!once) {
+        spectrum_init();
+        view_init(RATE);
+        panel_init();
+    }
     int n = view_themes(), cols = 2, rows = n, gap = 8;   /* left: receiver, right: Controls */
     int SW = cols * LCD_W + (cols + 1) * gap, SH = rows * LCD_H + (rows + 1) * gap;
     uint16_t *sheet = calloc((size_t)SW * SH, 2);
@@ -162,40 +180,43 @@ int main(int argc, char **argv)
         }
         view_blit();
         char path[512];
-        snprintf(path, sizeof path, "%s/%s.png", dir, view_theme_name(t));
-        write_png(path, &fb[0][0], LCD_W, LCD_H);
+        snprintf(path, sizeof path, "%s/%s%s.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
         int ox = gap, oy = gap + t * (LCD_H + gap);
-        for (int y = 0; y < LCD_H; y++) memcpy(&sheet[(oy + y) * SW + ox], fb[y], LCD_W * 2);
+        for (int y = 0; y < LCD_H; y++) memcpy(&sheet[(oy + y) * SW + ox], &FB(0, y), LCD_W * 2);
         ctl_t ct = {.gain_idx = 17, .gain_n = 30, .gain_label = gain_label, .gain_tenths = gain_tenths,
                     .range_auto = false, .ref_db = -20, .range_db = 60, .zoom = 1, .bw = 2, .band = 1};
         panel_open(&ct);
-        snprintf(path, sizeof path, "%s/%s-controls.png", dir, view_theme_name(t));
-        write_png(path, &fb[0][0], LCD_W, LCD_H);
+        snprintf(path, sizeof path, "%s/%s%s-controls.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
         ox += LCD_W + gap;
-        for (int y = 0; y < LCD_H; y++) memcpy(&sheet[(oy + y) * SW + ox], fb[y], LCD_W * 2);
+        for (int y = 0; y < LCD_H; y++) memcpy(&sheet[(oy + y) * SW + ox], &FB(0, y), LCD_W * 2);
         /* every sub page: tap its menu tile, save, tap BACK */
         static const char *pg[] = {"gain", "range", "zoom", "filter", "band", "scan", "look"};
-        int top = view_tune_y(), ph = LCD_H - top, cw = (LCD_W - 12 - 18) / 4, chh = (ph - 12 - 6) / 2;
+        int cols = LCD_PORTRAIT ? 2 : 4, rows = 8 / cols, top = view_tune_y(), ph = LCD_H - top;
+        int cw = (LCD_W - 12 - 6 * (cols - 1)) / cols, chh = (ph - 12 - 6 * (rows - 1)) / rows;
         for (int i = 0; i < 7; i++) {
-            int tx = 6 + cw / 2 + (i % 4) * (cw + 6), ty = top + 6 + chh / 2 + (i / 4) * (chh + 6);
+            int tx = 6 + cw / 2 + (i % cols) * (cw + 6), ty = top + 6 + chh / 2 + (i / cols) * (chh + 6);
             panel_touch(&ct, PANEL_PRESS, tx, ty, 0);
             panel_touch(&ct, PANEL_RELEASE, tx, ty, 0);
-            snprintf(path, sizeof path, "%s/%s-%s.png", dir, view_theme_name(t), pg[i]);
-            write_png(path, &fb[0][0], LCD_W, LCD_H);
+            snprintf(path, sizeof path, "%s/%s%s-%s.png", dir, tag, view_theme_name(t), pg[i]);
+            write_png(path, fb, LCD_W, LCD_H);
             panel_touch(&ct, PANEL_PRESS, 60, top + 28, 0);           /* BACK */
             panel_touch(&ct, PANEL_RELEASE, 60, top + 28, 0);
         }
         /* a key lit under the finger (pressed, not yet released) */
         panel_touch(&ct, PANEL_PRESS, 240, top + 6 + chh / 2, 0);
-        snprintf(path, sizeof path, "%s/%s-pressed.png", dir, view_theme_name(t));
-        write_png(path, &fb[0][0], LCD_W, LCD_H);
+        snprintf(path, sizeof path, "%s/%s%s-pressed.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
         panel_touch(&ct, PANEL_MOVE, 240, 10, 0);                    /* slide off: nothing fires */
         panel_touch(&ct, PANEL_RELEASE, 240, 10, 0);
         printf("%s\n", path);
     }
     /* ADS-B list and map with made-up traffic around a home point */
-    adsb_init();
-    adsb_view_init();
+    if (!once) {
+        adsb_init();
+        adsb_view_init();
+    }
     static const struct { uint32_t icao; const char *fl; int alt, spd, trk, vr; double dlat, dlon; } tr[] = {
         {0x4840D6, "KLM1023", 38000, 452, 95, 0, 0.18, -0.30},  {0x40621D, "BAW9KX", 24500, 388, 250, -1600, -0.10, 0.22},
         {0x3C6585, "DLH4AB", 36000, 470, 300, 0, 0.35, 0.40},    {0x485020, "", 7800, 210, 183, -832, -0.06, -0.05},
@@ -204,12 +225,12 @@ int main(int argc, char **argv)
     };
     /* AMAP=path/MAP.BIN draws that base map under the traffic (tools/mapgen makes one) */
     const char *mp = getenv("AMAP");
-    if (mp) {
+    if (mp && !once) {
         FILE *f = fopen(mp, "rb");
         static uint8_t mapbuf[16 << 20];
         size_t len = f ? fread(mapbuf, 1, sizeof mapbuf, f) : 0;
         if (f) fclose(f);
-        if (!amap_load(mapbuf, len)) { fprintf(stderr, "%s: not a map\n", mp); return 1; }
+        if (!amap_load(mapbuf, len)) { fprintf(stderr, "%s: not a map\n", mp); exit(1); }
         printf("map %s: %d features\n", amap_info()->name, amap_info()->nfeat);
     }
     const double hlat = mp ? amap_info()->lat : 52.31, hlon = mp ? amap_info()->lon : 4.76;
@@ -228,7 +249,7 @@ int main(int argc, char **argv)
         a.ntrail = a.has_pos ? 8 : 0;
         a.msgs = 40 + 37 * i;
         a.seen_ms = -1000 * i;
-        adsb_test_add(&a);
+        if (!once) adsb_test_add(&a);
     }
     adsb_view_info_t info = {.msgs_per_s = 212, .gain_tenths = 496, .have_home = true, .home_lat = hlat, .home_lon = hlon, .rec = 1};
     for (int t = 0; t < n; t++) {
@@ -236,25 +257,29 @@ int main(int argc, char **argv)
         char path[512];
         adsb_view_open();
         adsb_view_draw(&info);
-        snprintf(path, sizeof path, "%s/%s-adsb-list.png", dir, view_theme_name(t));
-        write_png(path, &fb[0][0], LCD_W, LCD_H);
-        adsb_view_touch(AV_PRESS, 340, 20);                    /* MAP */
-        adsb_view_touch(AV_RELEASE, 340, 20);
+        snprintf(path, sizeof path, "%s/%s%s-adsb-list.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
+        adsb_view_touch(AV_PRESS, key_cx(0, 2, 340), KEY_CY);     /* MAP */
+        adsb_view_touch(AV_RELEASE, key_cx(0, 2, 340), KEY_CY);
         adsb_view_draw(&info);
-        snprintf(path, sizeof path, "%s/%s-adsb-map.png", dir, view_theme_name(t));
-        write_png(path, &fb[0][0], LCD_W, LCD_H);
+        snprintf(path, sizeof path, "%s/%s%s-adsb-map.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
         if (mp) {                                              /* zoomed out twice, then in */
             static const struct { int x, n; const char *tag; } z[] = {{200, 2, "200"}, {264, 4, "10"}};
             for (int k = 0; k < 2; k++) {
                 for (int j = 0; j < z[k].n; j++) {
-                    adsb_view_touch(AV_PRESS, z[k].x, 20);
-                    adsb_view_touch(AV_RELEASE, z[k].x, 20);
+                    int zx = key_cx(z[k].x == 200 ? 0 : 1, 4, z[k].x);
+                    adsb_view_touch(AV_PRESS, zx, KEY_CY);
+                    adsb_view_touch(AV_RELEASE, zx, KEY_CY);
                 }
                 adsb_view_draw(&info);
-                snprintf(path, sizeof path, "%s/%s-adsb-map%s.png", dir, view_theme_name(t), z[k].tag);
-                write_png(path, &fb[0][0], LCD_W, LCD_H);
+                snprintf(path, sizeof path, "%s/%s%s-adsb-map%s.png", dir, tag, view_theme_name(t), z[k].tag);
+                write_png(path, fb, LCD_W, LCD_H);
             }
-            for (int j = 0; j < 2; j++) { adsb_view_touch(AV_PRESS, 200, 20); adsb_view_touch(AV_RELEASE, 200, 20); }
+            for (int j = 0; j < 2; j++) {
+                adsb_view_touch(AV_PRESS, key_cx(0, 4, 200), KEY_CY);
+                adsb_view_touch(AV_RELEASE, key_cx(0, 4, 200), KEY_CY);
+            }
         }
     }
     /* Wi-Fi and BLE scanners with made-up neighbours */
@@ -280,29 +305,44 @@ int main(int argc, char **argv)
         {{0x08, 0x3A, 0xF2, 0x10, 0x20, 0x30}, false, true, -89, "ESP32-C6 test", "Espressif", 5, -31000},
         {{0x66, 0x01, 0x02, 0x03, 0x04, 0x05}, true, false, -94, "", "", 3, -40000},
     };
-    scan_view_init();
+    if (!once) scan_view_init();
+    once = true;
     for (int t = 0; t < n; t++) {
         view_set_theme(t);
         char path[512];
         scan_view_info_t wi = {.kind = SV_WIFI, .ap = ap, .nap = sizeof ap / sizeof ap[0], .now_ms = 0, .scans = 14, .rec = 1};
         scan_view_open(SV_WIFI);
         scan_view_draw(&wi);
-        snprintf(path, sizeof path, "%s/%s-wifi-list.png", dir, view_theme_name(t));
-        write_png(path, &fb[0][0], LCD_W, LCD_H);
-        scan_view_touch(SV_PRESS, 340, 20);                    /* CHAN */
-        scan_view_touch(SV_RELEASE, 340, 20);
+        snprintf(path, sizeof path, "%s/%s%s-wifi-list.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
+        scan_view_touch(SV_PRESS, key_cx(1, 3, 340), KEY_CY);     /* CHAN */
+        scan_view_touch(SV_RELEASE, key_cx(1, 3, 340), KEY_CY);
         scan_view_draw(&wi);
-        snprintf(path, sizeof path, "%s/%s-wifi-chan.png", dir, view_theme_name(t));
-        write_png(path, &fb[0][0], LCD_W, LCD_H);
+        snprintf(path, sizeof path, "%s/%s%s-wifi-chan.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
         scan_view_info_t bi = {.kind = SV_BLE, .ble = ble, .nble = sizeof ble / sizeof ble[0], .now_ms = 0, .rec = 1};
         scan_view_open(SV_BLE);
         scan_view_draw(&bi);
-        snprintf(path, sizeof path, "%s/%s-ble.png", dir, view_theme_name(t));
-        write_png(path, &fb[0][0], LCD_W, LCD_H);
+        snprintf(path, sizeof path, "%s/%s%s-ble.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
     }
     char path[512];
-    snprintf(path, sizeof path, "%s/themes.png", dir);
+    snprintf(path, sizeof path, "%s/%sthemes.png", dir, tag);
     write_png(path, sheet, SW, SH);
+    free(sheet);
     printf("%s\n", path);
+}
+
+/* usage: preview OUT_DIR [freq_hz] [pressed_button]
+ * Writes OUT_DIR/<theme>.png, <theme>-controls.png and the other screens for every theme, and
+ * OUT_DIR/themes.png; then the same in portrait, named portrait-*. */
+int main(int argc, char **argv)
+{
+    const char *dir = argc > 1 ? argv[1] : ".";
+    uint32_t freq = argc > 2 ? (uint32_t)strtoul(argv[2], NULL, 10) : 100000000;
+    int pressed = argc > 3 ? atoi(argv[3]) : -1;
+    render_all(dir, "", freq, pressed);
+    rpi_lcd_set_portrait(true);
+    render_all(dir, "portrait-", freq, pressed);
     return 0;
 }

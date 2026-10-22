@@ -46,12 +46,12 @@ const char *panel_band(int i, uint32_t *freq, int *bw, int *zoom)
 
 enum { P_MENU, P_GAIN, P_RANGE, P_ZOOM, P_BW, P_BAND, P_SCAN, P_LOOK };
 static const char *s_title[] = {"CONTROLS", "GAIN", "RANGE", "ZOOM", "FILTER", "BAND", "SCAN", "LOOK"};
-#define LOOKS 4
-static const char *s_look_sub[LOOKS] = {"clean blue", "Mayhem style", "green CRT", "walnut and amber"};
+#define LOOKS 5
+static const char *s_look_sub[LOOKS] = {"clean blue", "Mayhem style", "green CRT", "walnut and amber", "synthwave"};
 
 enum {
     K_LABEL = -1,                            /* text only, not touchable */
-    K_BACK, K_DONE, K_WIFI, K_BLE, K_TILE,   /* K_TILE + page: menu tiles */
+    K_BACK, K_DONE, K_WIFI, K_BLE, K_TURN, K_TILE,   /* K_TILE + page: menu tiles */
     K_GAIN_DN = K_TILE + 8, K_GAIN_UP, K_GAIN_P,   /* K_GAIN_P + 0..3: presets */
     K_TOP_DN = K_GAIN_P + 4, K_TOP_UP, K_SPAN_DN, K_SPAN_UP, K_AUTO,
     K_ZOOM, K_BW = K_ZOOM + PANEL_ZOOMS, K_BAND = K_BW + PANEL_BWS, K_LOOK = K_BAND + PANEL_BANDS,
@@ -103,7 +103,7 @@ static void gain_text(const ctl_t *c, char *b, size_t n)
 /* three keys on a row: [-] value [+] */
 static void stepper(int y, int h, int dn, int up, const char *value, const char *caption)
 {
-    const int kw = 120;
+    const int kw = LCD_PORTRAIT ? 80 : 120;
     add(GAP, y, kw, h, dn, "-", NULL)->rep = true;
     pkey_t *v = add(GAP + kw + GAP, y, LCD_W - 4 * GAP - 2 * kw, h, K_LABEL, value, caption);
     v->big = true;
@@ -114,19 +114,22 @@ static void build(const ctl_t *c)
 {
     s_nk = 0;
     char v[24];
+    /* portrait turns the wide grids on their side */
+    const bool p = LCD_PORTRAIT;
+    const int c4 = p ? 2 : 4, r2 = p ? 4 : 2;
     if (s_page == P_MENU) {
         int y = GAP, h = s_h - 2 * GAP, w = LCD_W - 2 * GAP;
         gain_text(c, v, sizeof v);
-        grid(GAP, y, w, h, 4, 2, 0, K_TILE + P_GAIN, "GAIN", v)->big = true;
+        grid(GAP, y, w, h, c4, r2, 0, K_TILE + P_GAIN, "GAIN", v)->big = true;
         if (c->range_auto) snprintf(v, sizeof v, "auto");
         else snprintf(v, sizeof v, "%d/%d dB", c->ref_db, c->range_db);
-        grid(GAP, y, w, h, 4, 2, 1, K_TILE + P_RANGE, "RANGE", v)->big = true;
-        grid(GAP, y, w, h, 4, 2, 2, K_TILE + P_ZOOM, "ZOOM", s_zoom_lbl[c->zoom])->big = true;
-        grid(GAP, y, w, h, 4, 2, 3, K_TILE + P_BW, "FILTER", s_bw_lbl[c->bw])->big = true;
-        grid(GAP, y, w, h, 4, 2, 4, K_TILE + P_BAND, "BAND", c->band >= 0 ? s_band[c->band].name : "presets")->big = true;
-        grid(GAP, y, w, h, 4, 2, 5, K_TILE + P_SCAN, "SCAN", "Wi-Fi, BLE")->big = true;
-        grid(GAP, y, w, h, 4, 2, 6, K_TILE + P_LOOK, "LOOK", view_theme_name(view_theme()))->big = true;
-        grid(GAP, y, w, h, 4, 2, 7, K_DONE, "DONE", "to radio")->big = true;
+        grid(GAP, y, w, h, c4, r2, 1, K_TILE + P_RANGE, "RANGE", v)->big = true;
+        grid(GAP, y, w, h, c4, r2, 2, K_TILE + P_ZOOM, "ZOOM", s_zoom_lbl[c->zoom])->big = true;
+        grid(GAP, y, w, h, c4, r2, 3, K_TILE + P_BW, "FILTER", s_bw_lbl[c->bw])->big = true;
+        grid(GAP, y, w, h, c4, r2, 4, K_TILE + P_BAND, "BAND", c->band >= 0 ? s_band[c->band].name : "presets")->big = true;
+        grid(GAP, y, w, h, c4, r2, 5, K_TILE + P_SCAN, "SCAN", "Wi-Fi, BLE")->big = true;
+        grid(GAP, y, w, h, c4, r2, 6, K_TILE + P_LOOK, "LOOK", view_theme_name(view_theme()))->big = true;
+        grid(GAP, y, w, h, c4, r2, 7, K_DONE, "DONE", "to radio")->big = true;
         return;
     }
     /* sub page: BACK + title, then the body */
@@ -141,7 +144,7 @@ static void build(const ctl_t *c)
         static const char *pl[4] = {"AGC", "15 dB", "30 dB", "MAX"};
         int t = c->gain_tenths(c->gain_idx);
         for (int i = 0; i < 4; i++) {
-            pkey_t *k = grid(GAP, by + h1 + GAP, bw, bh - h1 - GAP, 4, 1, i, K_GAIN_P + i, pl[i], NULL);
+            pkey_t *k = grid(GAP, by + h1 + GAP, bw, bh - h1 - GAP, p ? 2 : 4, p ? 2 : 1, i, K_GAIN_P + i, pl[i], NULL);
             k->sel = (i == 0 && c->gain_idx == 0) || (i == 3 && c->gain_idx == c->gain_n - 1 && c->gain_n > 1) ||
                      (i == 1 && t == 150) || (i == 2 && t == 300);
         }
@@ -167,21 +170,22 @@ static void build(const ctl_t *c)
         break;
     case P_BAND:
         for (int i = 0; i < PANEL_BANDS; i++)
-            grid(GAP, by, bw, bh, 4, 2, i, K_BAND + i, s_band[i].name, s_band[i].sub)->sel = i == c->band;
+            grid(GAP, by, bw, bh, c4, r2, i, K_BAND + i, s_band[i].name, s_band[i].sub)->sel = i == c->band;
         break;
     case P_SCAN:                             /* on the module's ESP32-C6 */
-        grid(GAP, by, bw, bh, 2, 1, 0, K_WIFI, "WIFI", "access points, channels")->big = true;
-        grid(GAP, by, bw, bh, 2, 1, 1, K_BLE, "BLE", "nearby devices")->big = true;
+        grid(GAP, by, bw, bh, p ? 1 : 2, p ? 2 : 1, 0, K_WIFI, "WIFI", "access points, channels")->big = true;
+        grid(GAP, by, bw, bh, p ? 1 : 2, p ? 2 : 1, 1, K_BLE, "BLE", "nearby devices")->big = true;
         break;
     case P_LOOK:
         for (int i = 0; i < LOOKS && i < view_themes(); i++) {
             char up[16];
             snprintf(up, sizeof up, "%s", view_theme_name(i));
             for (char *p = up; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
-            pkey_t *k = grid(GAP, by, bw, bh, 2, 2, i, K_LOOK + i, up, s_look_sub[i]);
+            pkey_t *k = grid(GAP, by, bw, bh, 2, 3, i, K_LOOK + i, up, s_look_sub[i]);
             k->big = true;
             k->sel = i == view_theme();
         }
+        grid(GAP, by, bw, bh, 2, 3, 5, K_TURN, "TURN", p ? "back to landscape" : "portrait, USB up")->big = true;
         break;
     }
 }
@@ -287,6 +291,7 @@ static int act(ctl_t *c, int id, bool *page_change)
     if (id == K_DONE) return CTL_CLOSE;
     if (id == K_WIFI) return CTL_WIFI;
     if (id == K_BLE) return CTL_BLE;
+    if (id == K_TURN) return CTL_TURN;
     if (id >= K_TILE && id < K_TILE + 8) { s_page = id - K_TILE; *page_change = true; return 0; }
     if (c->gain_n > 1 && (id == K_GAIN_DN || id == K_GAIN_UP)) {
         int g = c->gain_idx;

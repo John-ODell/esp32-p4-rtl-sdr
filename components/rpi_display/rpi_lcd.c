@@ -11,7 +11,7 @@
 static const char *TAG = "rpi_lcd";
 static spi_device_handle_t s_dev;
 #define STRIP_ROWS 16                                 /* 480*16*2 = 15360 B per DMA transfer */
-#define STRIP_BYTES (LCD_W * STRIP_ROWS * 2)
+#define STRIP_BYTES (LCD_LONG * STRIP_ROWS * 2)
 static uint8_t *s_strip;                              /* DMA-capable internal RAM */
 
 static void IRAM_ATTR pre_cb(spi_transaction_t *t) {
@@ -56,6 +56,24 @@ static const init_step_t INIT[] = {
 };
 
 spi_host_device_t rpi_lcd_spi_host(void) { return LCD_SPI_HOST; }
+
+int rpi_lcd_w = LCD_LONG, rpi_lcd_h = LCD_SHORT;
+
+/* Portrait is the kit turned a quarter turn anticlockwise from the default landscape, USB-A and
+ * Ethernet ports up. It is the same way up in both builds, so MADCTL is the same: MY, no
+ * row/column exchange, 320x480. */
+esp_err_t rpi_lcd_set_portrait(bool on) {
+#if CONFIG_RPI_LCD_ROTATE_180
+    uint8_t m = on ? 0x88 : 0xE8;
+#else
+    uint8_t m = on ? 0x88 : 0x28;
+#endif
+    ESP_RETURN_ON_ERROR(cmd(0x36), TAG, "madctl");
+    ESP_RETURN_ON_ERROR(data8(m), TAG, "madctl");
+    rpi_lcd_w = on ? LCD_SHORT : LCD_LONG;
+    rpi_lcd_h = on ? LCD_LONG : LCD_SHORT;
+    return ESP_OK;
+}
 
 esp_err_t rpi_lcd_init(void) {
     gpio_config_t io = {
