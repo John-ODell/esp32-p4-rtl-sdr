@@ -136,7 +136,7 @@ static void tune_memory(int i)
     s_ctl.band = -1;
     sdr_set_freq(s_ctl.mem_hz[i]);
     audio_retuned();
-    apply_view();
+    view_set_passband(panel_bw_hz(s_ctl.bw));   /* not apply_view: that clears the waterfall */
     apply_audio();
     s_ctl.freq = sdr_freq();
     if (!s_panel) view_axis(sdr_freq());
