@@ -2,6 +2,8 @@
 - Audio out of the kit's speaker connector (ES8311): WFM, NFM and AM, picked by the filter, with
   volume and squelch on the new AUDIO page (it replaces FILTER) and a mode plate on the spectrum.
   `tools/demod_test` checks the demodulator on a PC. Not yet heard on hardware.
+- The squelch fades audio in and out over 5 ms instead of switching it, and AM picks up a new
+  carrier's level at once, so opening and closing shouldn't click.
 - RDS on broadcast FM: the station name shows on the spectrum, and PI, name and RadioText go to
   the serial log. Checked on synthesized stations only.
 - Neon look (violet, cyan and magenta), the fifth in MENU › LOOK.
