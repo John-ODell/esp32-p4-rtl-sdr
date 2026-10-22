@@ -145,14 +145,15 @@ static void put_block(uint16_t d, uint16_t ofs)
     for (int i = 25; i >= 0; i--) s_bits[s_nbits++] = w >> i & 1;
 }
 
-/* groups 0A (station name) and 2A (RadioText) over and over, differentially encoded */
-static void rds_bits(uint16_t pi, const char *ps, const char *rt)
+/* groups 0A (station name) and 2A (RadioText; 2B with two letters a group if b2) over and over,
+ * differentially encoded */
+static void rds_bits(uint16_t pi, const char *ps, const char *rt, bool b2)
 {
     enum { A = 0x0FC, B = 0x198, C = 0x168, D = 0x1B4, PTY = 10 };
     char t[64];
     memset(t, ' ', sizeof t);
     memcpy(t, rt, strlen(rt));
-    int rsegs = ((int)strlen(rt) + 3) / 4;
+    int per = b2 ? 2 : 4, rsegs = ((int)strlen(rt) + per - 1) / per;
     s_nbits = 0;
     while (s_nbits + 26 * 4 * (4 + rsegs) < (int)(sizeof s_bits / sizeof *s_bits)) {
         for (int g = 0; g < 4; g++) {
@@ -163,9 +164,15 @@ static void rds_bits(uint16_t pi, const char *ps, const char *rt)
         }
         for (int g = 0; g < rsegs; g++) {
             put_block(pi, A);
-            put_block(2 << 12 | PTY << 5 | g, B);
-            put_block((uint16_t)(t[4 * g] << 8 | t[4 * g + 1]), C);
-            put_block((uint16_t)(t[4 * g + 2] << 8 | t[4 * g + 3]), D);
+            if (b2) {
+                put_block(2 << 12 | 1 << 11 | PTY << 5 | g, B);
+                put_block(pi, 0x350);        /* C' */
+                put_block((uint16_t)(t[2 * g] << 8 | t[2 * g + 1]), D);
+            } else {
+                put_block(2 << 12 | PTY << 5 | g, B);
+                put_block((uint16_t)(t[4 * g] << 8 | t[4 * g + 1]), C);
+                put_block((uint16_t)(t[4 * g + 2] << 8 | t[4 * g + 3]), D);
+            }
         }
     }
     for (int i = 1; i < s_nbits; i++) s_bits[i] ^= s_bits[i - 1];
@@ -173,10 +180,10 @@ static void rds_bits(uint16_t pi, const char *ps, const char *rt)
 
 /* seconds of a broadcast station with RDS through the demodulator; noise per I and Q, and the
  * station's clock off from ours by ppm */
-static void rds_case(const char *name, double secs, double noise, double rds_dev, double ppm)
+static void rds_case(const char *name, double secs, double noise, double rds_dev, double ppm, bool b2)
 {
     const char *ps = "P4  SDR!", *rt = "HELLO FROM THE P4 SDR\r";
-    rds_bits(0x54A8, ps, rt);
+    rds_bits(0x54A8, ps, rt, b2);
     demod_set(DEMOD_WFM, 200000);
     demod_set_squelch(0);
     double ph = 0, t0 = 0.37e-3;             /* start part-way into a bit */
@@ -257,8 +264,9 @@ int main(void)
         CHECK(!demod_open() && quiet == 0, "%s: open on noise", name);
     }
 
-    rds_case("RDS, strong, 100 ppm off", 6, 0.02, 3000, 100);
-    rds_case("RDS, weak, 30 ppm off", 8, 0.08, 2000, 30);
+    rds_case("RDS, strong, 100 ppm off", 6, 0.02, 3000, 100, false);
+    rds_case("RDS, weak, 30 ppm off", 8, 0.08, 2000, 30, false);
+    rds_case("RDS, RadioText as 2B", 8, 0.02, 3000, 0, true);
 
     printf(fails ? "%d FAILED\n" : "all passed\n", fails);
     return fails != 0;

@@ -38,7 +38,7 @@ static uint16_t s_pi_cand;
 static char s_ps_cand[8], s_ps[8], s_rt[64], s_rt_cand[64];
 static uint8_t s_ps_mask;
 static uint16_t s_rt_mask;
-static int s_rt_ab = -1, s_rt_end = 64;
+static int s_rt_ab = -1, s_rt_end = 64, s_rt_seg = 4;   /* letters per segment: 4 (2A) or 2 (2B) */
 
 /* 26-bit word mod x^10 + x^8 + x^7 + x^5 + x^4 + x^3 + 1: equals the block's offset word when
  * the block came through clean */
@@ -57,7 +57,7 @@ static void publish(void)
     if (s_info.has_ps) { memcpy(s_info.ps, s_ps, 8); s_info.ps[8] = 0; }
     int n = 0;                               /* RadioText: the run of segments from the start */
     while (n < 16 && (s_rt_mask >> n & 1)) n++;
-    int len = n * 4 < s_rt_end ? n * 4 : s_rt_end;
+    int len = n * s_rt_seg < s_rt_end ? n * s_rt_seg : s_rt_end;
     s_info.has_rt = len > 0;
     memcpy(s_info.rt, s_rt, len);
     while (len > 0 && s_info.rt[len - 1] == ' ') len--;
@@ -109,6 +109,12 @@ static void group(void)
             s_rt_mask = 0;
             s_rt_end = 64;
         }
+        if (s_rt_seg != (ver_b ? 2 : 4)) {   /* 2A and 2B don't mix in one text */
+            s_rt_seg = ver_b ? 2 : 4;
+            memset(s_rt, ' ', sizeof s_rt);
+            s_rt_mask = 0;
+            s_rt_end = ver_b ? 32 : 64;
+        }
         char c[4];
         if (!ver_b && s_ok[2] && s_ok[3]) {
             c[0] = letter(s_grp[2] >> 8); c[1] = letter(s_grp[2] & 0xFF);
@@ -117,7 +123,6 @@ static void group(void)
         } else if (ver_b && s_ok[3]) {
             c[0] = letter(s_grp[3] >> 8); c[1] = letter(s_grp[3] & 0xFF);
             rt_letters(2 * seg, c, 2, seg);  /* 2B: 32 letters, two per segment */
-            if (s_rt_end > 32) s_rt_end = 32;
         }
     }
     publish();
@@ -205,6 +210,7 @@ void rds_reset(void)
     s_rt_mask = 0;
     s_rt_ab = -1;
     s_rt_end = 64;
+    s_rt_seg = 4;
 }
 
 /* One 24 kS/s complex sample: carrier phase, biphase correlation, bit timing. A bit is read one
