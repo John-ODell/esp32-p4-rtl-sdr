@@ -1,4 +1,4 @@
-/* p4-sdr: RTL-SDR Blog V4 receiver on the ESP32-P4-Module-DEV-KIT with the MPI3501 3.5" screen.
+/* p4-sdr: RTL-SDR Blog V4 receiver on the ESP32-P4-Module-DEV-KIT with the MHS-3.5inch Display-IPS.
  *
  * Boot: splash in the saved look (hold the screen to redo touch calibration), find the dongle on
  * the USB-A ports, 1.5 s USB link check in counter mode (every lost byte counts), then the

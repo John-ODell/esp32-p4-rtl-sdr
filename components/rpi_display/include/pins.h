@@ -1,5 +1,6 @@
 #pragma once
-/* Pin map for the lcdwiki MPI3501 "3.5inch RPi Display" plugged DIRECTLY onto the
+/* Pin map for the 3.5" RPi display (tested: MHS-3.5inch Display-IPS; the lcdwiki MPI3501 has the
+ * same pinout) plugged DIRECTLY onto the
  * Waveshare ESP32-P4-Module-DEV-KIT 40-pin header (P6), which follows the Raspberry Pi
  * power/ground layout (3V3 on 1/17, 5V on 2/4, GND on 6/9/14/20/25/30/34/39).
  *
@@ -15,7 +16,7 @@
  * VERIFY with a meter before power: header pin 1 (square pad) = 3V3, pin 2 = 5V, pin 6 = GND.
  */
 #include "sdkconfig.h"
-/* Set in menuconfig ("MPI3501 3.5in RPi display"); defaults are the direct-plug pins above. */
+/* Set in menuconfig ("3.5in RPi display, 16-bit SPI"); defaults are the direct-plug pins above. */
 #define PIN_LCD_SCK    CONFIG_RPI_LCD_PIN_SCK
 #define PIN_LCD_MOSI   CONFIG_RPI_LCD_PIN_MOSI
 #define PIN_LCD_MISO   CONFIG_RPI_LCD_PIN_MISO   /* only the touch controller drives this */

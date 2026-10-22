@@ -41,7 +41,7 @@ def main():
         "version": ver,
         "chip": "ESP32-P4",
         "board": "Waveshare ESP32-P4-Module-DEV-KIT",
-        "display": "MPI3501 3.5inch RPi Display (ILI9486 + XPT2046)",
+        "display": "MHS-3.5inch Display-IPS, 3.5in RPi display (ILI9486 + XPT2046)",
         "description": "RTL-SDR spectrum and waterfall receiver with ADS-B aircraft list and map, "
                        "and Wi-Fi and BLE scanners on the module's ESP32-C6.",
         "home": f"https://github.com/{REPO}",

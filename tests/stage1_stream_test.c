@@ -1,4 +1,4 @@
-/* p4-sdr: RTL-SDR Blog V4 on the ESP32-P4-Module-DEV-KIT with the MPI3501 3.5" screen.
+/* p4-sdr: RTL-SDR Blog V4 on the ESP32-P4-Module-DEV-KIT with the MHS-3.5inch Display-IPS.
  *
  * Stage 1 (this file): USB stream test.
  *   1. Boot splash. Hold the screen during it to redo the touch calibration.
