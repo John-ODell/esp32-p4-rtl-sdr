@@ -74,7 +74,15 @@ void demod_set(demod_mode_t mode, uint32_t bw_hz)
     rds_reset();
 }
 
-void demod_retuned(void) { rds_reset(); }
+/* new station: nothing heard before carries over (a squelch held open by the last channel would
+ * hold a scan on this one) */
+void demod_retuned(void)
+{
+    rds_reset();
+    s_msd = s_ref;
+    s_hang = 0;
+    if (s_sql) s_open = false;
+}
 
 void demod_set_squelch(int level) { s_sql = level < 0 ? 0 : level > 9 ? 9 : level; }
 float demod_level_db(void) { return 10 * log10f(s_pow + 1e-12f); }

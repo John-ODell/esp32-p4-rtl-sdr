@@ -3,7 +3,7 @@
  * Tap the spectrum or waterfall to tune there. Hold a step button to repeat. Tap the frequency
  * readout for the next look (or pick one on the LOOK page). Tap MENU (top right, gain shown under it) for Controls (gain, dB range, zoom,
  * audio: filter and mode, volume, squelch; bands). Touch is sampled three times a frame; menu keys and tuning act when the finger lifts. Everything is kept in NVS namespace "sdr": freq, gaint (tenths of a dB,
- * -1 = AGC), theme, rauto, ref, rspan, zoom, bw, vol, sql; logn is the SD log session (sdlog.c). */
+ * -1 = AGC), theme, rauto, ref, rspan, zoom, bw, vol, sql, mem (blob: the channel memories); logn is the SD log session (sdlog.c). */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +49,9 @@ static int s_av_action;                     /* last ADS-B screen key fired */
 static bool s_scan;                         /* in a Wi-Fi / BLE scanner */
 static int s_scan_req = -1;                 /* SV_WIFI / SV_BLE asked for */
 static int s_sv_action;                     /* last scanner key fired */
+static bool s_mscan;                        /* hopping through the channel memories */
+static int s_mscan_i = -1;                  /* slot tuned by the scan */
+static int64_t s_hop_at, s_dwell_until;
 
 static void draw_header(int pressed) { view_header(sdr_freq(), sdr_gain_label(sdr_gain_index()), pressed); }
 
@@ -104,6 +107,87 @@ static void apply_audio(void)
     audio_set_squelch(s_ctl.sql);
 }
 
+/* ----------------------------------------------------------------------- memories -- */
+
+static void save_memories(void)
+{
+    struct { uint32_t hz[PANEL_MEMS]; int8_t bw[PANEL_MEMS]; } m;
+    memcpy(m.hz, s_ctl.mem_hz, sizeof m.hz);
+    memcpy(m.bw, s_ctl.mem_bw, sizeof m.bw);
+    nvs_set_blob(s_nvs, "mem", &m, sizeof m);
+    nvs_commit(s_nvs);
+}
+
+static void load_memories(void)
+{
+    struct { uint32_t hz[PANEL_MEMS]; int8_t bw[PANEL_MEMS]; } m;
+    size_t len = sizeof m;
+    if (nvs_get_blob(s_nvs, "mem", &m, &len) != ESP_OK || len != sizeof m) return;
+    for (int i = 0; i < PANEL_MEMS; i++) {
+        s_ctl.mem_hz[i] = m.hz[i];
+        s_ctl.mem_bw[i] = m.bw[i] >= 0 && m.bw[i] < PANEL_BWS ? m.bw[i] : 0;
+    }
+}
+
+/* a memory's frequency and filter (so also its mode) */
+static void tune_memory(int i)
+{
+    s_ctl.bw = s_ctl.mem_bw[i];
+    s_ctl.band = -1;
+    sdr_set_freq(s_ctl.mem_hz[i]);
+    audio_retuned();
+    view_set_passband(panel_bw_hz(s_ctl.bw));   /* not apply_view: that clears the waterfall */
+    apply_audio();
+    s_ctl.freq = sdr_freq();
+    if (!s_panel) view_axis(sdr_freq());
+    draw_header(-1);
+    settings_changed();
+}
+
+static void mscan_stop(void)
+{
+    if (!s_mscan) return;
+    s_mscan = false;
+    ESP_LOGI(TAG, "memory scan stopped on M%d", s_mscan_i + 1);
+}
+
+/* Once a frame while scanning: stay while the squelch is open and 2 s after, otherwise hop to
+ * the next stored channel every 300 ms. The squelch is not believed for the first 80 ms after a
+ * hop, while IQ from the last channel is still coming through. */
+static void mscan_step(void)
+{
+    int64_t now = esp_timer_get_time();
+    if (now - s_hop_at > 80000 && audio_squelch_open()) {
+        if (s_dwell_until < now + 2000000) s_dwell_until = now + 2000000;
+        return;
+    }
+    if (now < s_dwell_until) return;
+    for (int k = 1; k <= PANEL_MEMS; k++) {
+        int i = (s_mscan_i + k) % PANEL_MEMS;
+        if (!s_ctl.mem_hz[i]) continue;
+        s_mscan_i = i;
+        if (s_ctl.mem_hz[i] != sdr_freq() || s_ctl.mem_bw[i] != s_ctl.bw) tune_memory(i);
+        s_hop_at = now;
+        s_dwell_until = now + 300000;
+        return;
+    }
+    mscan_stop();                            /* nothing stored any more */
+}
+
+static void mscan_start(void)
+{
+    if (!s_ctl.sql) {                        /* an open squelch would never let it move on */
+        s_ctl.sql = 3;
+        apply_audio();
+        settings_changed();
+        ESP_LOGI(TAG, "memory scan: squelch was open, set to 3");
+    }
+    s_mscan = true;
+    s_mscan_i = -1;
+    s_dwell_until = 0;
+    ESP_LOGI(TAG, "memory scan");
+}
+
 /* RDS names and texts go to the log when they change */
 static void log_rds(const rds_info_t *r)
 {
@@ -118,15 +202,17 @@ static void log_rds(const rds_info_t *r)
     }
 }
 
-/* the plate on the spectrum: mode and volume, or on broadcast FM the RDS station name once it
- * is in; lit while sound is coming out */
+/* the plate on the spectrum: mode and volume, the memory being scanned, or on broadcast FM the
+ * RDS station name once it is in; lit while sound is coming out */
 static void show_audio(void)
 {
     if (!audio_ok()) { view_set_audio(NULL, false); return; }
     char l[24];
     rds_info_t r;
     rds_get(&r);
-    if (s_ctl.bw == 0 && r.has_ps) {
+    if (s_mscan) {
+        snprintf(l, sizeof l, "SCAN M%d %s", s_mscan_i + 1, panel_bw_mode(s_ctl.bw));
+    } else if (s_ctl.bw == 0 && r.has_ps) {
         log_rds(&r);
         int n = 8;
         while (n > 0 && r.ps[n - 1] == ' ') n--;
@@ -151,6 +237,7 @@ static void panel_show(bool on)
 {
     s_panel = on;
     if (on) {
+        s_ctl.freq = sdr_freq();
         s_ctl.gain_idx = sdr_gain_index();
         s_ctl.gain_n = sdr_gain_presets();
         panel_open(&s_ctl);
@@ -235,6 +322,20 @@ static void panel_event(int ev, int x, int y, int64_t now)
     if (ch & (CTL_ZOOM | CTL_BW | CTL_RANGE)) ESP_LOGI(TAG, "zoom %d, filter %d, range %s %d/%d", s_ctl.zoom,
                                                        s_ctl.bw, s_ctl.range_auto ? "auto" : "manual",
                                                        s_ctl.ref_db, s_ctl.range_db);
+    if (ch & CTL_MEM_SAVE) {
+        save_memories();
+        ESP_LOGI(TAG, "M%d: %" PRIu32 " Hz, %s", s_ctl.mem + 1, s_ctl.mem_hz[s_ctl.mem], panel_bw_mode(s_ctl.mem_bw[s_ctl.mem]));
+    }
+    if (ch & CTL_MEM_TUNE) {                 /* the panel stays up: tap through and listen */
+        tune_memory(s_ctl.mem);
+        panel_redraw(&s_ctl);
+        return;
+    }
+    if (ch & CTL_MEM_SCAN) {
+        panel_show(false);
+        mscan_start();
+        return;
+    }
     if (ch & (CTL_RANGE | CTL_ZOOM | CTL_BW | CTL_BAND)) apply_view();
     if (ch & (CTL_BW | CTL_BAND | CTL_AUDIO)) apply_audio();
     if (ch) settings_changed();
@@ -247,7 +348,7 @@ static void poll_touch(const touch_cal_t *cal)
 {
     static bool down;
     static int n, x, y;
-    static int where;                       /* 0 header, 1 panel, 2 spectrum, 3 ADS-B, 4 scanner */
+    static int where;                       /* 0 header, 1 panel, 2 spectrum, 3 ADS-B, 4 scanner, 5 none */
     static int act = -1;
     static int64_t next_repeat;
     uint16_t rx, ry, rz;
@@ -277,7 +378,10 @@ static void poll_touch(const touch_cal_t *cal)
     if (!down) { down = true; n = 0; return; }       /* landing sample: drop it */
     if (n++ == 0) {                                   /* press */
         x = px; y = py;
-        if (s_adsb) {
+        if (s_mscan) {                                /* the first touch only stops a scan */
+            mscan_stop();
+            where = 5;
+        } else if (s_adsb) {
             where = 3;
             adsb_view_touch(AV_PRESS, x, y);
         } else if (s_scan) {
@@ -585,6 +689,7 @@ void ui_run(const touch_cal_t *cal)
     s_ctl.bw = nvs_int("bw", 0) % PANEL_BWS;
     s_ctl.vol = nvs_int("vol", 4);
     s_ctl.sql = nvs_int("sql", 0);
+    load_memories();
     apply_view();
     if (audio_init()) apply_audio();
 
@@ -646,6 +751,7 @@ void ui_run(const touch_cal_t *cal)
         t_dsp += t1 - t0;
         t_lcd += t2 - t1;
         poll_touch(cal);
+        if (s_mscan) mscan_step();
         settings_maybe_save();
         vTaskDelay(1);                          /* let IDLE1 run (task watchdog) */
         frames++;

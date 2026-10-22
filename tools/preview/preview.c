@@ -206,6 +206,19 @@ static void render_all(const char *dir, const char *tag, uint32_t freq, int pres
             panel_touch(&ct, PANEL_PRESS, 60, top + 28, 0);           /* BACK */
             panel_touch(&ct, PANEL_RELEASE, 60, top + 28, 0);
         }
+        /* the channel memories, and SAVE picking a slot */
+        static const uint32_t mhz[PANEL_MEMS] = {146520000, 162550000, 121500000, 98100000, 0, 446006250, 0, 0};
+        static const int8_t mbw[PANEL_MEMS] = {1, 1, 3, 0, 0, 2, 0, 0};
+        memcpy(ct.mem_hz, mhz, sizeof mhz);
+        memcpy(ct.mem_bw, mbw, sizeof mbw);
+        ct.freq = 121500000;
+        panel_open_memory(&ct, false);
+        snprintf(path, sizeof path, "%s/%s%s-memory.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
+        panel_open_memory(&ct, true);
+        snprintf(path, sizeof path, "%s/%s%s-save.png", dir, tag, view_theme_name(t));
+        write_png(path, fb, LCD_W, LCD_H);
+        panel_open(&ct);
         /* a key lit under the finger (pressed, not yet released) */
         panel_touch(&ct, PANEL_PRESS, 240, top + 6 + chh / 2, 0);
         snprintf(path, sizeof path, "%s/%s%s-pressed.png", dir, tag, view_theme_name(t));
