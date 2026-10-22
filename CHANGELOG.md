@@ -1,4 +1,7 @@
 # Unreleased
+- Audio out of the kit's speaker connector (ES8311): WFM, NFM and AM, picked by the filter, with
+  volume and squelch on the new AUDIO page (it replaces FILTER) and a mode plate on the spectrum.
+  `tools/demod_test` checks the demodulator on a PC. Not yet heard on hardware.
 - Neon look (violet, cyan and magenta), the fifth in MENU › LOOK.
 - Signal markers: up to three strong signals outside the passband are labelled with their frequency.
 - The S/N readout is a ten-segment bar meter with the dB figure.

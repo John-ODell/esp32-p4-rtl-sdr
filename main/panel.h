@@ -4,10 +4,11 @@
  * under the finger and fires when the finger lifts (slide to the right one first), and the
  * -/+ steppers fire on press and repeat while held.
  *
- *   menu:   GAIN  RANGE  ZOOM  FILTER / BAND  SCAN  LOOK  DONE   (tiles show the current value)
+ *   menu:   GAIN  RANGE  ZOOM  AUDIO / BAND  SCAN  LOOK  DONE   (tiles show the current value)
  *   GAIN:   -  value  +,  AGC / 15 dB / 30 dB / MAX
  *   RANGE:  top -/+, span -/+, AUTO
- *   ZOOM, FILTER: four choices;  BAND: eight presets;  SCAN: WIFI, BLE;  LOOK: the looks, TURN
+ *   ZOOM: four choices;  AUDIO: four filters (each with its mode), volume and squelch -/+
+ *   BAND: eight presets;  SCAN: WIFI, BLE;  LOOK: the looks, TURN
  * In portrait the 4-wide grids stand 2 wide.
  * No ESP-IDF calls (tools/preview builds it). */
 #include <stdbool.h>
@@ -24,13 +25,15 @@ typedef struct {
     bool range_auto;
     int ref_db, range_db;                    /* manual scale: top (dBFS) and height (dB) */
     int zoom, bw, band;                      /* indexes into the tables below; band -1 = none */
+    int vol, sql;                            /* volume 0 (off)..10, squelch 0 (open)..9 */
     int look;                                /* set with CTL_LOOK: the look picked */
 } ctl_t;
 
 enum { CTL_GAIN = 1, CTL_RANGE = 2, CTL_ZOOM = 4, CTL_BW = 8, CTL_BAND = 16, CTL_CLOSE = 32,
        CTL_WIFI = 64, CTL_BLE = 128,         /* WIFI, BLE: open that scanner (the panel stays as is) */
        CTL_LOOK = 256,                       /* switch to c->look, then panel_redraw() */
-       CTL_TURN = 512 };                     /* switch between landscape and portrait */
+       CTL_TURN = 512,                       /* switch between landscape and portrait */
+       CTL_AUDIO = 1024 };                   /* volume or squelch */
 enum { PANEL_PRESS, PANEL_MOVE, PANEL_RELEASE };
 
 void panel_init(void);
@@ -42,4 +45,5 @@ int panel_touch(ctl_t *c, int ev, int x, int y, int64_t now_us);
 
 uint32_t panel_zoom_hz(int i);
 uint32_t panel_bw_hz(int i);
+const char *panel_bw_mode(int i);           /* "WFM", "NFM" or "AM" */
 const char *panel_band(int i, uint32_t *freq, int *bw, int *zoom);

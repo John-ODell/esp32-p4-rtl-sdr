@@ -155,6 +155,8 @@ static float s_col[LCD_LONG], s_smooth[LCD_LONG], s_peak[LCD_LONG];
 static void set_steps(void);
 static uint16_t s_lut[256], s_fill[MAX_SPEC_H];
 static float s_floor = -100;
+static char s_audio[24];                      /* audio plate text, empty = no plate */
+static bool s_audio_live;
 static bool s_have;
 
 static void build_tables(void)
@@ -233,6 +235,12 @@ void view_set_span(uint32_t span)
 }
 
 void view_set_passband(uint32_t hz) { s_pb_hz = hz; }
+
+void view_set_audio(const char *label, bool live)
+{
+    snprintf(s_audio, sizeof s_audio, "%s", label ? label : "");
+    s_audio_live = live;
+}
 
 void view_set_range(bool auto_range, float ref_db, float range_db)
 {
@@ -593,6 +601,22 @@ static void s_meter(const rpi_canvas_t *c, int snr)
     rpi_cv_text(c, bx + bar + 6, y + 1, t, fg, 1);
 }
 
+/* Mode and volume in a plate at the top left, by a speaker that shows sound when the squelch is
+ * open (dim when it is shut or the volume is off) */
+static void audio_plate(const rpi_canvas_t *c)
+{
+    if (!s_audio[0]) return;
+    int tw = rpi_cv_text_w(s_audio, 1), w = 8 + 12 + 8 + tw + 6, x = 34, y = 4;
+    uint16_t fg = T->hdr == HDR_VINTAGE ? T->trace : T->txt, ic = s_audio_live ? T->freq : T->dim;
+    if (T->hdr == HDR_PORTAPACK) outline(c, x, y - 1, w, 18, 0, T->btn_edge, T->plate);
+    else rpi_cv_rrect(c, x, y, w, 18, 4, T->plate);
+    rpi_cv_fill(c, x + 6, y + 6, 3, 6, ic);                       /* speaker: box and cone */
+    for (int i = 0; i < 4; i++) rpi_cv_fill(c, x + 9 + i, y + 5 - i, 1, 8 + 2 * i, ic);
+    if (s_audio_live)
+        for (int k = 0; k < 2; k++) rpi_cv_fill(c, x + 15 + 3 * k, y + 6 - 2 * k, 1, 6 + 4 * k, ic);
+    rpi_cv_text(c, x + 8 + 12 + 8, y + 1, s_audio, s_audio_live ? fg : T->dim, 1);
+}
+
 /* Label up to three strong signals away from the centre: a tick over the peak and its MHz. */
 static void markers(const rpi_canvas_t *c, uint32_t fc, const int *ys, int pb0, int pb1)
 {
@@ -728,6 +752,7 @@ static void render_spectrum(uint32_t fc)
     for (int x = pb0; x <= pb1; x++) if (s_smooth[x] > pk) pk = s_smooth[x];
     markers(&c, fc, ys, pb0, pb1);
     s_meter(&c, (int)lrintf(pk - s_floor));
+    audio_plate(&c);
 }
 
 static void push_waterfall_line(void)

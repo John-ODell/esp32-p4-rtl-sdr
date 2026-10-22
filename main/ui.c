@@ -1,9 +1,9 @@
 /* Receiver loop: IQ -> spectrum -> view (drawing lives in view.c and panel.c), touch, settings.
  *
  * Tap the spectrum or waterfall to tune there. Hold a step button to repeat. Tap the frequency
- * readout for the next look (or pick one on the LOOK page). Tap MENU (top right, gain shown under it) for Controls (gain, dB range, zoom, filter,
- * bands). Touch is sampled three times a frame; menu keys and tuning act when the finger lifts. Everything is kept in NVS namespace "sdr": freq, gaint (tenths of a dB,
- * -1 = AGC), theme, rauto, ref, rspan, zoom, bw; logn is the SD log session (sdlog.c). */
+ * readout for the next look (or pick one on the LOOK page). Tap MENU (top right, gain shown under it) for Controls (gain, dB range, zoom,
+ * audio: filter and mode, volume, squelch; bands). Touch is sampled three times a frame; menu keys and tuning act when the finger lifts. Everything is kept in NVS namespace "sdr": freq, gaint (tenths of a dB,
+ * -1 = AGC), theme, rauto, ref, rspan, zoom, bw, vol, sql; logn is the SD log session (sdlog.c). */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,6 +31,7 @@
 #include "sdlog.h"
 #include "scan_view.h"
 #include "radio_scan.h"
+#include "audio.h"
 #include "ui.h"
 
 static const char *TAG = "ui";
@@ -69,6 +70,8 @@ static void settings_maybe_save(void)
     nvs_set_i32(s_nvs, "rspan", s_ctl.range_db);
     nvs_set_i32(s_nvs, "zoom", s_ctl.zoom);
     nvs_set_i32(s_nvs, "bw", s_ctl.bw);
+    nvs_set_i32(s_nvs, "vol", s_ctl.vol);
+    nvs_set_i32(s_nvs, "sql", s_ctl.sql);
     nvs_commit(s_nvs);
     ESP_LOGI(TAG, "saved %" PRIu32 " Hz, gain %s, zoom %d, bw %d", sdr_freq(),
              sdr_gain_label(sdr_gain_index()), s_ctl.zoom, s_ctl.bw);
@@ -91,11 +94,32 @@ static void apply_view(void)
     view_set_range(s_ctl.range_auto, s_ctl.ref_db, s_ctl.range_db);
 }
 
+/* the filter picks the demodulator: 200k WFM, 25k and 12.5k NFM, 8k AM */
+static void apply_audio(void)
+{
+    demod_mode_t m = s_ctl.bw == 0 ? DEMOD_WFM : s_ctl.bw == PANEL_BWS - 1 ? DEMOD_AM : DEMOD_NFM;
+    audio_set_mode(m, panel_bw_hz(s_ctl.bw));
+    audio_set_volume(s_ctl.vol);
+    audio_set_squelch(s_ctl.sql);
+}
+
+/* the plate on the spectrum: mode and volume, lit while sound is coming out */
+static void show_audio(void)
+{
+    if (!audio_ok()) { view_set_audio(NULL, false); return; }
+    char l[24];
+    if (!s_ctl.vol) snprintf(l, sizeof l, "%s off", panel_bw_mode(s_ctl.bw));
+    else if (s_ctl.sql && !audio_squelch_open()) snprintf(l, sizeof l, "%s %d  SQL", panel_bw_mode(s_ctl.bw), s_ctl.vol);
+    else snprintf(l, sizeof l, "%s %d", panel_bw_mode(s_ctl.bw), s_ctl.vol);
+    view_set_audio(l, s_ctl.vol && audio_squelch_open());
+}
+
 /* -------------------------------------------------------------------------- touch -- */
 
 static void retune(uint32_t hz)
 {
     sdr_set_freq(hz);
+    audio_retuned();
     view_axis(sdr_freq());
     settings_changed();
 }
@@ -182,12 +206,14 @@ static void panel_event(int ev, int x, int y, int64_t now)
             return;
         }
         sdr_set_freq(f);
+        audio_retuned();
         draw_header(-1);
     }
     if (ch & (CTL_ZOOM | CTL_BW | CTL_RANGE)) ESP_LOGI(TAG, "zoom %d, filter %d, range %s %d/%d", s_ctl.zoom,
                                                        s_ctl.bw, s_ctl.range_auto ? "auto" : "manual",
                                                        s_ctl.ref_db, s_ctl.range_db);
     if (ch & (CTL_RANGE | CTL_ZOOM | CTL_BW | CTL_BAND)) apply_view();
+    if (ch & (CTL_BW | CTL_BAND | CTL_AUDIO)) apply_audio();
     if (ch) settings_changed();
 }
 
@@ -317,6 +343,7 @@ static void adsb_mode(const touch_cal_t *cal)
     const uint32_t freq = sdr_freq();
     const int gain = sdr_gain_index();
     ESP_LOGI(TAG, "ADS-B mode");
+    audio_pause(true);
     sdr_stop();
     memset(s_logged, 0, sizeof s_logged);   /* adsb_init restarts the decoder's clock */
     sdlog_begin("ADSB", "t_s,icao,callsign,alt_ft,speed_kt,track_deg,vrate_fpm,lat,lon,msgs");
@@ -409,6 +436,7 @@ static void adsb_mode(const touch_cal_t *cal)
     sdr_set_freq(freq);
     sdr_set_gain_index(gain);
     sdr_start();
+    audio_pause(false);
     view_set_theme(view_theme());              /* clears the screen */
     apply_view();
     draw_header(-1);
@@ -456,6 +484,7 @@ static void scan_mode(const touch_cal_t *cal, int kind)
     assert(ap && ble);
     const char *name = kind == SV_WIFI ? "Wi-Fi" : "BLE";
     ESP_LOGI(TAG, "%s scanner", name);
+    audio_pause(true);
     sdr_stop();
     scan_view_open(kind);
     s_scan = true;
@@ -506,6 +535,7 @@ static void scan_mode(const touch_cal_t *cal, int kind)
     s_scan = false;
     ESP_LOGI(TAG, "leaving the %s scanner", name);
     sdr_start();
+    audio_pause(false);
     view_set_theme(view_theme());              /* clears the screen */
     apply_view();
     draw_header(-1);
@@ -530,11 +560,15 @@ void ui_run(const touch_cal_t *cal)
     s_ctl.range_db = nvs_int("rspan", 60);
     s_ctl.zoom = nvs_int("zoom", 0) % PANEL_ZOOMS;
     s_ctl.bw = nvs_int("bw", 0) % PANEL_BWS;
+    s_ctl.vol = nvs_int("vol", 4);
+    s_ctl.sql = nvs_int("sql", 0);
     apply_view();
+    if (audio_init()) apply_audio();
 
     draw_header(-1);
     view_axis(sdr_freq());
     sdr_start();
+    audio_pause(false);
 
     int frames = 0;
     int64_t t_log = esp_timer_get_time(), t_dsp = 0, t_lcd = 0;
@@ -578,6 +612,7 @@ void ui_run(const touch_cal_t *cal)
         int n = spectrum_size();
         sdr_ring_latest(s_iq, IQ_PER_FRAME * 2);
         spectrum_compute(s_iq, IQ_PER_FRAME / n, s_db);
+        show_audio();
         view_render(s_db, n, sdr_freq());
         int64_t t1 = esp_timer_get_time();
         poll_touch(cal);
@@ -602,6 +637,13 @@ void ui_run(const touch_cal_t *cal)
                      "usb err %" PRIu32 " backlog max %" PRIu32 ", ram %u KB (min %u, dma %u)",
                      nf * 1e6 / (t2 - t_log), t_dsp / 1e3 / nf, t_lcd / 1e3 / nf, n, view_floor(),
                      (b - b_log) / ((t2 - t_log) / 1e6) / 1e6, us.bulk_errors, us.max_backlog, fk, mk, dk);
+            if (audio_ok()) {
+                int load, lag;
+                audio_stats(&load, &lag);
+                ESP_LOGI(TAG, "audio %s vol %d sql %d: demod %d%% of real time, lag max %d ms, channel %.1f dBFS "
+                         "(floor %.1f), squelch %s", panel_bw_mode(s_ctl.bw), s_ctl.vol, s_ctl.sql, load, lag,
+                         demod_level_db(), demod_floor_db(), audio_squelch_open() ? "open" : "shut");
+            }
             b_log = b;
             frames = 0;
             t_dsp = t_lcd = 0;

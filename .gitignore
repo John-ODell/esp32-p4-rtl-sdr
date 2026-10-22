@@ -10,3 +10,4 @@ __pycache__/
 # local skill links (absolute paths on the maintainer's machine)
 .claude/skills/
 .agents/skills/
+tools/demod_test/demod_test
