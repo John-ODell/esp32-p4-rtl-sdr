@@ -163,7 +163,7 @@ static void render_all(const char *dir, const char *tag, uint32_t freq, int pres
         view_init(RATE);
         panel_init();
     }
-    view_set_audio("NFM 5", true);
+    view_set_audio("WFM P4 SDR", true);   /* an RDS station name */
     int n = view_themes(), cols = 2, rows = n, gap = 8;   /* left: receiver, right: Controls */
     int SW = cols * LCD_W + (cols + 1) * gap, SH = rows * LCD_H + (rows + 1) * gap;
     uint16_t *sheet = calloc((size_t)SW * SH, 2);
@@ -186,7 +186,7 @@ static void render_all(const char *dir, const char *tag, uint32_t freq, int pres
         int ox = gap, oy = gap + t * (LCD_H + gap);
         for (int y = 0; y < LCD_H; y++) memcpy(&sheet[(oy + y) * SW + ox], &FB(0, y), LCD_W * 2);
         ctl_t ct = {.gain_idx = 17, .gain_n = 30, .gain_label = gain_label, .gain_tenths = gain_tenths,
-                    .range_auto = false, .ref_db = -20, .range_db = 60, .zoom = 1, .bw = 2, .band = 1,
+                    .range_auto = false, .ref_db = -20, .range_db = 60, .zoom = 1, .bw = 0, .band = 0,
                     .vol = 5, .sql = 2};
         panel_open(&ct);
         snprintf(path, sizeof path, "%s/%s%s-controls.png", dir, tag, view_theme_name(t));

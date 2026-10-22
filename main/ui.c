@@ -32,6 +32,7 @@
 #include "scan_view.h"
 #include "radio_scan.h"
 #include "audio.h"
+#include "rds.h"
 #include "ui.h"
 
 static const char *TAG = "ui";
@@ -103,12 +104,34 @@ static void apply_audio(void)
     audio_set_squelch(s_ctl.sql);
 }
 
-/* the plate on the spectrum: mode and volume, lit while sound is coming out */
+/* RDS names and texts go to the log when they change */
+static void log_rds(const rds_info_t *r)
+{
+    static char ps[9], rt[65];
+    if (r->has_ps && strcmp(ps, r->ps)) {
+        strcpy(ps, r->ps);
+        ESP_LOGI(TAG, "RDS PI %04X, station \"%s\"", r->pi, ps);
+    }
+    if (r->has_rt && strcmp(rt, r->rt)) {
+        strcpy(rt, r->rt);
+        ESP_LOGI(TAG, "RDS text \"%s\"", rt);
+    }
+}
+
+/* the plate on the spectrum: mode and volume, or on broadcast FM the RDS station name once it
+ * is in; lit while sound is coming out */
 static void show_audio(void)
 {
     if (!audio_ok()) { view_set_audio(NULL, false); return; }
     char l[24];
-    if (!s_ctl.vol) snprintf(l, sizeof l, "%s off", panel_bw_mode(s_ctl.bw));
+    rds_info_t r;
+    rds_get(&r);
+    if (s_ctl.bw == 0 && r.has_ps) {
+        log_rds(&r);
+        int n = 8;
+        while (n > 0 && r.ps[n - 1] == ' ') n--;
+        snprintf(l, sizeof l, "WFM %.*s", n, r.ps);
+    } else if (!s_ctl.vol) snprintf(l, sizeof l, "%s off", panel_bw_mode(s_ctl.bw));
     else if (s_ctl.sql && !audio_squelch_open()) snprintf(l, sizeof l, "%s %d  SQL", panel_bw_mode(s_ctl.bw), s_ctl.vol);
     else snprintf(l, sizeof l, "%s %d", panel_bw_mode(s_ctl.bw), s_ctl.vol);
     view_set_audio(l, s_ctl.vol && audio_squelch_open());
@@ -119,6 +142,7 @@ static void show_audio(void)
 static void retune(uint32_t hz)
 {
     sdr_set_freq(hz);
+    audio_retuned();
     view_axis(sdr_freq());
     settings_changed();
 }
@@ -205,6 +229,7 @@ static void panel_event(int ev, int x, int y, int64_t now)
             return;
         }
         sdr_set_freq(f);
+        audio_retuned();
         draw_header(-1);
     }
     if (ch & (CTL_ZOOM | CTL_BW | CTL_RANGE)) ESP_LOGI(TAG, "zoom %d, filter %d, range %s %d/%d", s_ctl.zoom,
@@ -641,6 +666,12 @@ void ui_run(const touch_cal_t *cal)
                 ESP_LOGI(TAG, "audio %s vol %d sql %d: demod %d%% of real time, lag max %d ms, channel %.1f dBFS "
                          "(floor %.1f), squelch %.1f dB, %s", panel_bw_mode(s_ctl.bw), s_ctl.vol, s_ctl.sql, load, lag,
                          demod_level_db(), demod_floor_db(), demod_quality_db(), audio_squelch_open() ? "open" : "shut");
+                if (s_ctl.bw == 0) {
+                    rds_info_t r;
+                    rds_get(&r);
+                    ESP_LOGI(TAG, "rds: %s, %" PRIu32 " blocks, %" PRIu32 " bad", r.sync ? "in sync" : "searching",
+                             r.blocks, r.bad_blocks);
+                }
             }
             b_log = b;
             frames = 0;

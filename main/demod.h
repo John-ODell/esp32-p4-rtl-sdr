@@ -2,7 +2,8 @@
 /* Audio demodulator for the tuned frequency (the centre of the IQ stream): 2.4 MS/s IQ in,
  * 48 kHz mono audio out. No ESP-IDF calls, so tools/demod_test runs it on a PC.
  *
- *   2.4 MS/s --FIR /5--> 480 kS/s --+-- WFM: discriminator, /5, 75 us de-emphasis, /2 (15 kHz)
+ *   2.4 MS/s --FIR /5--> 480 kS/s --+-- WFM: discriminator, /5, 75 us de-emphasis, /2 (15 kHz);
+ *                                   |        the multiplex also feeds the RDS decoder (rds.h)
  *                                   +-- NFM, AM: /5, channel filter /2, discriminator or envelope
  *
  * Squelch, 0 = always open, level n opens at 3n dB: on FM, of quieting (how much quieter the
@@ -22,6 +23,7 @@ void demod_set(demod_mode_t mode, uint32_t bw_hz);
 demod_mode_t demod_mode(void);
 const char *demod_mode_name(demod_mode_t m);
 void demod_set_squelch(int level);           /* 0..9 */
+void demod_retuned(void);                    /* new station: RDS starts over */
 
 /* n IQ pairs of unsigned 8-bit samples. Writes up to n / 50 + 1 samples to out, returns how
  * many. Squelched audio comes out as silence. */

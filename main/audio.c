@@ -36,7 +36,7 @@ static const char *TAG = "audio";
 static esp_codec_dev_handle_t s_dev;
 static volatile bool s_paused = true, s_open;
 static volatile int s_req_vol = -1, s_req_sql = -1;
-static volatile bool s_req_mode;
+static volatile bool s_req_mode, s_req_retune;
 static volatile demod_mode_t s_mode = DEMOD_WFM;
 static volatile uint32_t s_bw = 200000;
 static volatile int s_load, s_lag;
@@ -60,6 +60,7 @@ static void audio_task(void *arg)
         if (s_req_vol >= 0) { set_volume(s_req_vol); s_req_vol = -1; }
         if (s_req_sql >= 0) { demod_set_squelch(s_req_sql); s_req_sql = -1; }
         if (s_req_mode) { s_req_mode = false; demod_set(s_mode, s_bw); }
+        if (s_req_retune) { s_req_retune = false; demod_retuned(); }
         int64_t now = esp_timer_get_time();
         if (now - t_stat >= 5000000) {
             s_load = (int)(100 * busy / (now - t_stat));
@@ -155,6 +156,7 @@ void audio_set_mode(demod_mode_t mode, uint32_t bw_hz)
 void audio_set_volume(int v) { s_req_vol = v < 0 ? 0 : v > 10 ? 10 : v; }
 void audio_set_squelch(int level) { s_req_sql = level < 0 ? 0 : level > 9 ? 9 : level; }
 void audio_pause(bool on) { s_paused = on; }
+void audio_retuned(void) { s_req_retune = true; }
 bool audio_squelch_open(void) { return s_open; }
 
 void audio_stats(int *load_pct, int *lag_ms)
