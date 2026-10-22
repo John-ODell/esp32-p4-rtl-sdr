@@ -98,7 +98,8 @@ SHA-256 and the chip revisions it boots on.
 
 ## First boot
 
-1. **Splash.** On first boot it runs the 5-point touch calibration: tap the centre of each cross.
+1. **Splash.** The splash is drawn in the saved look and plays a short tune-in animation. On first
+   boot it runs the 5-point touch calibration: tap the centre of each cross.
    To redo it later, hold the screen during the splash.
 2. **Dongle.** It looks for the RTL-SDR on the USB-A ports. If nothing shows up, check the H3
    jumper, then unplug the dongle and plug it back in.
