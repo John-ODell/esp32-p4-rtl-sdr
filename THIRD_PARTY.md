@@ -3,7 +3,7 @@
 - `components/rtlsdr/blog/`: librtlsdr from the RTL-SDR Blog fork (rtlsdrblog/rtl-sdr-blog,
   commit aed0ea1), copied unmodified. GPL-2.0-or-later; see `blog/COPYING` and the file headers.
   The libusb shim in `components/rtlsdr/shim/` was written for this project.
-- `components/rpi_display/`: the MPI3501 driver from
+- `components/rpi_display/`: the 3.5" RPi display driver from
   [esp32-p4-3.5-inch-rpi-display](https://github.com/John-ODell/esp32-p4-3.5-inch-rpi-display)
   (MIT, same author), with the off-screen canvas added. Its `font8x16.h` is an 8x16 raster of
   DejaVu Sans Mono, taken from ValentinStars/esp32p4-linux (MIT). DejaVu fonts are under the

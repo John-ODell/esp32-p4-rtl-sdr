@@ -1,4 +1,4 @@
-menu "MPI3501 3.5in RPi display (ILI9486 + XPT2046)"
+menu "3.5in RPi display, 16-bit SPI (ILI9486 + XPT2046)"
 
     comment "Defaults: panel plugged straight onto the Waveshare ESP32-P4-Module-DEV-KIT 40-pin header"
 
