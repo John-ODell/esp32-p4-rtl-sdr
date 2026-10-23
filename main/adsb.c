@@ -68,6 +68,7 @@ static adsb_ac_t *aircraft(uint32_t icao)
     a->alt_ft = INT32_MIN;
     a->speed_kt = -1;
     a->cpr_ms[0] = a->cpr_ms[1] = -100000;
+    a->good_ms = -1;
     return a;
 }
 
@@ -109,7 +110,7 @@ static int cpr_nl(double lat)
 static double modd(double a, double b) { double r = fmod(a, b); return r < 0 ? r + b : r; }
 
 /* global airborne CPR from an even/odd pair; newest says which half to use */
-static bool cpr_global(adsb_ac_t *a, int newest)
+static bool cpr_global(const adsb_ac_t *a, int newest, double *out_lat, double *out_lon)
 {
     const double le = a->cpr_lat[0] / 131072.0, lo_e = a->cpr_lon[0] / 131072.0;
     const double lo = a->cpr_lat[1] / 131072.0, lo_o = a->cpr_lon[1] / 131072.0;
@@ -125,9 +126,132 @@ static bool cpr_global(adsb_ac_t *a, int newest)
     double m = floor(lo_e * (nl - 1) - lo_o * nl + 0.5);
     double lon = 360.0 / ni * (modd(m, ni) + (newest ? lo_o : lo_e));
     if (lon >= 180) lon -= 360;
-    a->lat = lat;
-    a->lon = lon;
+    *out_lat = lat;
+    *out_lon = lon;
     return true;
+}
+
+/* ------------------------------------------------------------- position checks --
+ * Ported from ADS-B Scope by John Stockdale, github.com/jstockdale/T-Display-P4 (adsb branch,
+ * main/examples/adsb_receiver/class_driver.c), GPL-3.0: local CPR decoding, the jump check, and
+ * suspect / consensus recovery, with his thresholds. Adapted to this decoder's aircraft table
+ * and clock. */
+
+#define JUMP_FLOOR_NM   10.0                       /* GPS-free CPR quantisation and jitter */
+#define JUMP_RATE_NM_S  1.0                        /* ~3600 kt: faster than anything squawking */
+#define LOCAL_MAX_NM    50.0                       /* local decode is valid to ~180 nm */
+#define SUSPECT_GIVE_UP 5
+#define CONSENSUS_COUNT 3
+#define CONSENSUS_NM    10.0
+#define TIGHT_PAIR_MS   2000                       /* a pair this close re-anchors local fixes */
+#define REANCHOR_NM     2.0
+
+static double dist_nm(double lat1, double lon1, double lat2, double lon2)
+{
+    double dlat = lat2 - lat1, dlon = (lon2 - lon1) * cos(lat1 * M_PI / 180);
+    return sqrt(dlat * dlat + dlon * dlon) * 60;
+}
+
+/* one frame against a reference within ~180 nm: no pair needed */
+static bool cpr_local(double ref_lat, double ref_lon, uint32_t raw_lat, uint32_t raw_lon, int odd,
+                      double *out_lat, double *out_lon)
+{
+    double dlat = odd ? 360.0 / 59 : 360.0 / 60, clat = raw_lat / 131072.0, clon = raw_lon / 131072.0;
+    double j = floor(ref_lat / dlat) + floor(0.5 + modd(ref_lat, dlat) / dlat - clat);
+    double lat = dlat * (j + clat);
+    if (lat < -90 || lat > 90) return false;
+    int nl = cpr_nl(lat);
+    int ni = odd ? (nl - 1 > 1 ? nl - 1 : 1) : (nl > 1 ? nl : 1);
+    double dlon = 360.0 / ni;
+    double m = floor(ref_lon / dlon) + floor(0.5 + modd(ref_lon, dlon) / dlon - clon);
+    double lon = dlon * (m + clon);
+    if (lon >= 180) lon -= 360;
+    if (lon < -180) lon += 360;
+    if (dist_nm(ref_lat, ref_lon, lat, lon) > LOCAL_MAX_NM) return false;
+    *out_lat = lat;
+    *out_lon = lon;
+    return true;
+}
+
+/* could the aircraft have got here from its last good fix? */
+static bool plausible(const adsb_ac_t *a, double lat, double lon, int64_t now)
+{
+    if (a->good_ms < 0) return true;
+    double s = (now - a->good_ms) / 1000.0;
+    if (s < 0.1) s = 0.1;
+    return dist_nm(a->good_lat, a->good_lon, lat, lon) <= JUMP_FLOOR_NM + s * JUMP_RATE_NM_S;
+}
+
+static void accept(adsb_ac_t *a, double lat, double lon, int64_t now)
+{
+    a->lat = a->good_lat = lat;
+    a->lon = a->good_lon = lon;
+    a->good_ms = a->pos_ms = now;
+    a->has_pos = true;
+    if (a->ntrail == 0 || fabsf(a->trail_lat[(a->ntrail - 1) % ADSB_TRAIL] - (float)lat) > 0.002f ||
+        fabsf(a->trail_lon[(a->ntrail - 1) % ADSB_TRAIL] - (float)lon) > 0.002f) {
+        a->trail_lat[a->ntrail % ADSB_TRAIL] = (float)lat;
+        a->trail_lon[a->ntrail % ADSB_TRAIL] = (float)lon;
+        a->ntrail++;
+    }
+}
+
+static void go_suspect(adsb_ac_t *a, int agree, double lat, double lon)
+{
+    a->suspect = true;
+    a->suspect_count = 1;
+    a->suspect_agree = agree;
+    a->suspect_lat = lat;
+    a->suspect_lon = lon;
+}
+
+/* a new airborne position frame (odd = its CPR format) has been stored in cpr_*[odd] */
+static void position(adsb_ac_t *a, int odd, int64_t now)
+{
+    bool local_ok = false;
+    double lat, lon;
+    /* 1. local decode against the current fix, unless that fix is in doubt */
+    if (a->has_pos && !a->suspect &&
+        cpr_local(a->lat, a->lon, a->cpr_lat[odd], a->cpr_lon[odd], odd, &lat, &lon)) {
+        if (plausible(a, lat, lon, now)) {
+            accept(a, lat, lon, now);
+            a->suspect_count = 0;
+            local_ok = true;
+        } else {
+            go_suspect(a, 0, 0, 0);                /* the reference may be bad: try global */
+        }
+    }
+    /* 2. global decode when the other half is recent */
+    int64_t pair_ms = now - a->cpr_ms[!odd];
+    if (a->cpr_ms[!odd] < 0 || pair_ms >= 10000 || !cpr_global(a, odd, &lat, &lon)) return;
+    if (!a->has_pos) {                             /* first fix */
+        accept(a, lat, lon, now);
+    } else if (a->suspect) {
+        /* recover if it agrees with the last good fix, or if enough globals agree together */
+        bool ok = plausible(a, lat, lon, now);
+        if (!ok) {
+            if (a->suspect_agree > 0 && dist_nm(a->suspect_lat, a->suspect_lon, lat, lon) <= CONSENSUS_NM)
+                ok = ++a->suspect_agree >= CONSENSUS_COUNT;
+            else
+                a->suspect_agree = 1;
+            a->suspect_lat = lat;
+            a->suspect_lon = lon;
+        }
+        if (ok) {
+            accept(a, lat, lon, now);
+            a->suspect = false;
+            a->suspect_count = a->suspect_agree = 0;
+        } else if (++a->suspect_count >= SUSPECT_GIVE_UP) {
+            a->has_pos = a->suspect = false;       /* start over from the next pair */
+            a->suspect_count = a->suspect_agree = 0;
+        }
+    } else if (!local_ok) {                        /* local failed its 50 nm limit: re-seed */
+        if (plausible(a, lat, lon, now)) accept(a, lat, lon, now);
+        else go_suspect(a, 0, 0, 0);
+    } else if (pair_ms <= TIGHT_PAIR_MS) {         /* keyframe: re-anchor a drifted local fix */
+        if (!plausible(a, lat, lon, now)) go_suspect(a, 1, lat, lon);
+        else if (dist_nm(a->lat, a->lon, lat, lon) > REANCHOR_NM) accept(a, lat, lon, now);
+    }
 }
 
 static void decode_df17(const uint8_t *m)
@@ -153,16 +277,7 @@ static void decode_df17(const uint8_t *m)
         a->cpr_lat[f] = bits(m, 55, 71);
         a->cpr_lon[f] = bits(m, 72, 88);
         a->cpr_ms[f] = now;
-        if (a->cpr_ms[!f] >= 0 && now - a->cpr_ms[!f] < 10000 && cpr_global(a, f)) {
-            a->has_pos = true;
-            a->pos_ms = now;
-            if (a->ntrail == 0 || fabsf(a->trail_lat[(a->ntrail - 1) % ADSB_TRAIL] - (float)a->lat) > 0.002f ||
-                fabsf(a->trail_lon[(a->ntrail - 1) % ADSB_TRAIL] - (float)a->lon) > 0.002f) {
-                a->trail_lat[a->ntrail % ADSB_TRAIL] = (float)a->lat;
-                a->trail_lon[a->ntrail % ADSB_TRAIL] = (float)a->lon;
-                a->ntrail++;
-            }
-        }
+        position(a, f, now);
     } else if (tc == 19) {
         int st = bits(m, 38, 40);
         if (st == 1 || st == 2) {

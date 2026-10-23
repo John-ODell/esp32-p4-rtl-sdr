@@ -23,7 +23,9 @@ native ESP-IDF firmware drives the dongle over USB.**
   log gets the programme ID, name and RadioText.
 - **ADS-B** at 1090 MHz: a list of aircraft (callsign, altitude, speed, heading, climb rate) and a
   map with range rings from 5 to 400 km. With a map file on a micro-SD card, the map also shows
-  coastlines, lakes, rivers, borders, roads, runways, towns and airports.
+  coastlines, lakes, rivers, borders, roads, runways, towns and airports. Positions update from
+  single frames and are checked for impossible jumps, using the logic from John Stockdale's
+  [ADS-B Scope](https://github.com/jstockdale/T-Display-P4/tree/adsb).
 - **Wi-Fi scanner** on the module's ESP32-C6. It lists 2.4 GHz access points and has a channel
   view showing one hump per network.
 - **BLE scanner**, also on the C6. It lists nearby devices with name, maker or service, address,
