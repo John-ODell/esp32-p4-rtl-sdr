@@ -1,4 +1,7 @@
 # Unreleased
+Thank you to **John Stockdale**, whose [ADS-B Scope](https://github.com/jstockdale/T-Display-P4/tree/adsb)
+gave P4 SDR its single-frame aircraft positions and jump checks.
+
 - ADS-B places aircraft from single position frames once it has a first fix, instead of needing a
   fresh even/odd pair each time. Every fix is checked against how far the plane could have
   flown, and a bad one is recovered from. Ported from John Stockdale's ADS-B Scope.

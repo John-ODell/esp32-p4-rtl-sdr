@@ -4,8 +4,8 @@
 touchscreen make a handheld spectrum and waterfall receiver. It has no Linux or PC behind it:
 native ESP-IDF firmware drives the dongle over USB.**
 
-The ADS-B single-frame positions and jump checks are ported from John Stockdale's
-[ADS-B Scope](https://github.com/jstockdale/T-Display-P4/tree/adsb). Thanks to him for offering it.
+Thank you to **John Stockdale**, whose [ADS-B Scope](https://github.com/jstockdale/T-Display-P4/tree/adsb)
+gave P4 SDR its single-frame aircraft positions and jump checks.
 
 > **Just want the 3.5" screen working on the P4?** Use
 > [esp32-p4-3.5-inch-rpi-display](https://github.com/John-ODell/esp32-p4-3.5-inch-rpi-display).
