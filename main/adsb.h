@@ -1,7 +1,10 @@
 #pragma once
 /* ADS-B (Mode S extended squitter) receiver: 2 MS/s u8 IQ in, aircraft out.
  * Demodulator after dump1090's classic 2 MHz preamble test, CRC-24 with single-bit repair,
- * DF17/18 decoding: identity, airborne position (global CPR), altitude, velocity.
+ * DF17/18 decoding: identity, airborne position, altitude, velocity.
+ * Position: global CPR from an even/odd pair, then every single frame decoded locally against
+ * the last fix, each fix jump-checked. That part is ported from ADS-B Scope by John Stockdale
+ * (github.com/jstockdale/T-Display-P4, adsb branch, GPL-3.0); see adsb.c.
  * Pure C, no ESP-IDF calls: tools/adsb_test runs it on a PC. Not thread safe: one task. */
 #include <stdbool.h>
 #include <stdint.h>
@@ -25,6 +28,12 @@ typedef struct {
     /* CPR halves */
     uint32_t cpr_lat[2], cpr_lon[2];
     int64_t cpr_ms[2];
+    /* position checks: the last fix that passed, and recovery after one that didn't */
+    double good_lat, good_lon;
+    int64_t good_ms;                         /* -1: none yet */
+    bool suspect;                            /* the last fix jumped: wait for a global decode */
+    int suspect_count, suspect_agree;
+    double suspect_lat, suspect_lon;         /* last global candidate while suspect */
 } adsb_ac_t;
 
 typedef struct {

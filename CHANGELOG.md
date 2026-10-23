@@ -1,4 +1,7 @@
 # Unreleased
+- ADS-B places aircraft from single position frames once it has a first fix, instead of needing a
+  fresh even/odd pair each time. Every fix is checked against how far the plane could have
+  flown, and a bad one is recovered from. Ported from John Stockdale's ADS-B Scope.
 - Animated boot splash in the saved look: the name in large letters over a band that tunes in,
   with the boot status lines on the same background. `tools/preview` renders it for every look.
 - Audio out of the kit's speaker connector (ES8311): WFM, NFM and AM, picked by the filter, with

@@ -8,6 +8,11 @@
   (MIT, same author), with the off-screen canvas added. Its `font8x16.h` is an 8x16 raster of
   DejaVu Sans Mono, taken from ValentinStars/esp32p4-linux (MIT). DejaVu fonts are under the
   Bitstream Vera / DejaVu license, which is permissive.
+- `main/adsb.c`, position checks: local (single-frame) CPR decoding, the position jump check and
+  suspect / consensus recovery are ported from ADS-B Scope by John Stockdale
+  ([jstockdale/T-Display-P4](https://github.com/jstockdale/T-Display-P4), `adsb` branch,
+  `main/examples/adsb_receiver/class_driver.c`), GPL-3.0, with his thresholds, and adapted to
+  this decoder.
 - `esp_hosted` and `esp_wifi_remote` (Espressif, Apache-2.0) are not included. The component
   manager fetches them at build time, and the prebuilt images link them.
 - ESP-IDF (Apache-2.0) is not included. It is needed to build, and the prebuilt images link it.

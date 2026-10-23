@@ -2,6 +2,7 @@
  * 2 MS/s u8 IQ with noise and a random carrier phase, fed through adsb_process in odd-sized
  * chunks, and the decoded aircraft are checked. Build and run: make -C tools/adsb_test */
 #include <math.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -54,6 +55,125 @@ static const adsb_ac_t *find(uint32_t icao)
 {
     for (int i = 0; i < adsb_count(); i++) if (adsb_get(i)->icao == icao) return adsb_get(i);
     return NULL;
+}
+
+/* ---- position frames for any lat/lon: CPR encoding and CRC, so the position checks can be
+ *      driven frame by frame ---- */
+
+static int nl(double lat)
+{
+    lat = fabs(lat);
+    if (lat < 1e-9) return 59;
+    if (lat >= 87) return lat == 87 ? 2 : 1;
+    double c = cos(M_PI / 180 * lat);
+    return (int)floor(2 * M_PI / acos(1 - (1 - cos(M_PI / 30)) / (c * c)));
+}
+
+static double modd(double a, double b) { double r = fmod(a, b); return r < 0 ? r + b : r; }
+
+static void pos_frame(uint8_t m[14], uint32_t icao, double lat, double lon, int odd)
+{
+    double dlat = 360.0 / (60 - odd);
+    uint32_t yz = (uint32_t)floor(131072 * modd(lat, dlat) / dlat + 0.5);
+    double rlat = dlat * (yz / 131072.0 + floor(lat / dlat));
+    int ni = nl(rlat) - odd > 1 ? nl(rlat) - odd : 1;
+    double dlon = 360.0 / ni;
+    uint32_t xz = (uint32_t)floor(131072 * modd(lon, dlon) / dlon + 0.5);
+    yz &= 0x1FFFF;
+    xz &= 0x1FFFF;
+    int n = (30000 + 1000) / 25;                   /* 30000 ft, 25 ft steps */
+    uint32_t alt = ((n << 1) & 0xFE0) | 0x10 | (n & 0x0F);
+    uint64_t me = (uint64_t)11 << 51 | (uint64_t)alt << 36 | (uint64_t)odd << 34 | (uint64_t)yz << 17 | xz;
+    m[0] = 0x8D;
+    m[1] = icao >> 16; m[2] = icao >> 8; m[3] = icao;
+    for (int i = 0; i < 7; i++) m[4 + i] = me >> (48 - 8 * i);
+    uint32_t c = 0;
+    for (int i = 0; i < 11; i++) {
+        c ^= (uint32_t)m[i] << 16;
+        for (int k = 0; k < 8; k++) c = (c & 0x800000) ? (c << 1) ^ 0xFFF409 : c << 1;
+    }
+    m[11] = c >> 16; m[12] = c >> 8; m[13] = c;
+}
+
+static void send_pos(uint32_t icao, double lat, double lon, int odd)
+{
+    uint8_t m[14];
+    pos_frame(m, icao, lat, lon, odd);
+    CHECK(adsb_frame(m, 14), "encoded position frame rejected");
+}
+
+/* the decoder's clock is samples seen: advance it with silence */
+static void wait_ms(int ms)
+{
+    static uint8_t z[2 * 20000];
+    memset(z, 128, sizeof z);
+    for (int n = ms * 2; n > 0; n -= 20) adsb_process(z, 20000);
+}
+
+static bool near(const adsb_ac_t *a, double lat, double lon)
+{
+    return a && a->has_pos && fabs(a->lat - lat) < 2e-4 && fabs(a->lon - lon) < 2e-4;
+}
+
+static void position_checks(void)
+{
+    const uint32_t A = 0x4CA1F0;
+    const double lat0 = 52.30, lon0 = 4.76;        /* demo area, as in the previews */
+
+    /* a pair gives the first fix */
+    adsb_init();
+    send_pos(A, lat0, lon0, 0);
+    wait_ms(500);
+    send_pos(A, lat0, lon0, 1);
+    CHECK(near(find(A), lat0, lon0), "pair: first fix");
+
+    /* 15 s later the pair is stale: one frame alone must still move the plane (local CPR) */
+    wait_ms(15000);
+    send_pos(A, lat0 + 0.05, lon0 + 0.04, 1);
+    CHECK(near(find(A), lat0 + 0.05, lon0 + 0.04), "single odd frame after 15 s: local fix");
+    wait_ms(1000);
+    send_pos(A, lat0 + 0.06, lon0 + 0.05, 0);
+    CHECK(near(find(A), lat0 + 0.06, lon0 + 0.05), "single even frame: local fix");
+    CHECK(find(A) && find(A)->ntrail == 3, "trail has 3 points, got %d", find(A) ? find(A)->ntrail : 0);
+
+    /* a frame 30 nm away 1 s later is a jump: position held, suspect */
+    wait_ms(1000);
+    send_pos(A, lat0 + 0.56, lon0 + 0.05, 1);
+    CHECK(near(find(A), lat0 + 0.06, lon0 + 0.05) && find(A)->suspect, "30 nm jump: held and suspect");
+    /* a clean pair near the last good fix recovers */
+    wait_ms(300);
+    send_pos(A, lat0 + 0.065, lon0 + 0.055, 0);
+    wait_ms(300);
+    send_pos(A, lat0 + 0.065, lon0 + 0.055, 1);
+    CHECK(near(find(A), lat0 + 0.065, lon0 + 0.055) && !find(A)->suspect, "recovered by a global near the good fix");
+
+    /* the first fix was the wrong one: globals that agree elsewhere win by consensus */
+    adsb_init();
+    send_pos(A, lat0, lon0, 0);
+    wait_ms(200);
+    send_pos(A, lat0, lon0, 1);
+    bool dropped = false;
+    for (int i = 0; i < 6; i++) {
+        wait_ms(200);
+        send_pos(A, lat0 + 0.5, lon0, i & 1);
+        dropped |= !find(A)->has_pos;              /* consensus, not giving up and starting over */
+    }
+    CHECK(near(find(A), lat0 + 0.5, lon0) && !find(A)->suspect && !dropped,
+          "consensus: moved to where the globals agree, without dropping the position");
+
+    /* globals that never agree: give up and start over */
+    adsb_init();
+    send_pos(A, lat0, lon0, 0);
+    wait_ms(200);
+    send_pos(A, lat0, lon0, 1);
+    bool gave_up = false;
+    for (int i = 0; i < 12 && !gave_up; i++) {
+        wait_ms(200);
+        double far = (i / 2) % 2 ? 0.5 : -0.5;     /* pairs alternate 30 nm north and south */
+        send_pos(A, lat0 + far, lon0 + 0.3 * i, i & 1);
+        gave_up = find(A) && !find(A)->has_pos;
+    }
+    CHECK(gave_up, "disagreeing globals: position dropped");
 }
 
 static void run(void)
@@ -120,6 +240,8 @@ int main(void)
     printf("noise 2 s: preambles %llu, ok %llu, aircraft %d\n", (unsigned long long)st.preambles,
            (unsigned long long)st.msgs_ok, adsb_count());
     CHECK(adsb_count() == 0, "ghost aircraft from noise");
+
+    position_checks();
 
     printf(fails ? "%d FAILED\n" : "all passed\n", fails);
     return fails != 0;
