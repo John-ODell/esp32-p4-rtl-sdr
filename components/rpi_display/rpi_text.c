@@ -5,11 +5,17 @@
 #include "rpi_text.h"
 #include "pins.h"
 #include "font8x16.h"
+#include "esp_heap_caps.h"
 
-static uint16_t s_line[LCD_LONG * 32];      /* one text row at scale 2 */
+/* One text row at scale 2. Only the CPU touches it (rpi_lcd_blit copies it into the DMA strip),
+ * so it goes in PSRAM when there is some and leaves 30 KB of internal RAM for USB DMA. */
+static uint16_t *s_line;
 
 int rpi_lcd_text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int scale)
 {
+    if (!s_line && !(s_line = heap_caps_malloc_prefer(LCD_LONG * 32 * sizeof *s_line, 2,
+                                                      MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT)))
+        return x;
     if (scale < 1) scale = 1;
     if (scale > 2) scale = 2;
     int cw = 8 * scale, ch = 16 * scale;
