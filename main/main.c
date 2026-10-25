@@ -67,7 +67,8 @@ static void load_custom_splash(void)
     if (!got) return;
     int w = 0, h = 0;
     if (!bmp_size(s_bmp, s_bmp_len, &w, &h) || w != LCD_W || h != LCD_H) {
-        ESP_LOGW(TAG, "SPLASH.BMP is %dx%d, not a %dx%d 24- or 32-bit BMP: using the drawn splash", w, h, LCD_W, LCD_H);
+        if (!w) ESP_LOGW(TAG, "SPLASH.BMP is not an uncompressed 24- or 32-bit BMP: using the drawn splash");
+        else ESP_LOGW(TAG, "SPLASH.BMP is %dx%d, not %dx%d: using the drawn splash", w, h, LCD_W, LCD_H);
         free(s_bmp);
         s_bmp = NULL;
     }
