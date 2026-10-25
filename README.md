@@ -5,7 +5,8 @@ touchscreen make a handheld spectrum and waterfall receiver. It has no Linux or 
 native ESP-IDF firmware drives the dongle over USB.**
 
 Thank you to **John Stockdale**, whose [ADS-B Scope](https://github.com/jstockdale/T-Display-P4/tree/adsb)
-gave P4 SDR its single-frame aircraft positions and jump checks.
+gave P4 SDR its single-frame aircraft positions and jump checks. RTL-SDR.com wrote it up:
+[Portable ADS-B receiver firmware for the LilyGO T-Display-P4](https://www.rtl-sdr.com/portable-ads-b-receiver-firmware-for-the-esp32-p4-based-lilygo-t-display-p4-with-rtl-sdr/).
 
 > **Just want the 3.5" screen working on the P4?** Use
 > [esp32-p4-3.5-inch-rpi-display](https://github.com/John-ODell/esp32-p4-3.5-inch-rpi-display).
