@@ -17,7 +17,8 @@ bool sdr_streaming(void);        /* false once the stream died (dongle unplugged
 
 void sdr_set_freq(uint32_t hz);
 uint32_t sdr_freq(void);
-/* Gain steps: index 0 = tuner AGC, then every gain the tuner offers (29 on the R828D). */
+/* Gain steps: index 0 = AGC, then every gain the tuner offers (29 on the R828D). The AGC is agc.c
+ * stepping the tuner's manual gain, fed one frame of IQ at a time by sdr_agc_feed. */
 int sdr_gain_presets(void);
 int sdr_gain_index(void);
 void sdr_set_gain_index(int i);
@@ -25,6 +26,9 @@ const char *sdr_gain_label(int i);
 int sdr_gain_tenths(int i);                 /* tenths of a dB, -1 for AGC */
 /* Nearest step to tenths (-1 = AGC). Before sdr_open it is remembered and applied on open. */
 void sdr_set_gain_tenths(int tenths);
+void sdr_agc_feed(const uint8_t *iq, size_t n);   /* does nothing unless the gain is on AGC */
+int sdr_agc_tenths(void);                   /* the gain the AGC has set, -1 when not on AGC */
+float sdr_agc_peak_db(void);                /* the last peak it saw, dBFS */
 
 /* Copy the newest n bytes of IQ (n even, <= 512 KB). Returns the stream's byte count at that point. */
 uint64_t sdr_ring_latest(uint8_t *dst, size_t n);

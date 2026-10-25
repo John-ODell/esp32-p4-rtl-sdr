@@ -46,7 +46,7 @@ static const char *TAG = "ui";
 static uint8_t *s_iq;
 static float s_db[NFFT_MAX];
 static ctl_t s_ctl = {.range_auto = true, .ref_db = -20, .range_db = 60, .band = -1,
-                      .gain_label = sdr_gain_label, .gain_tenths = sdr_gain_tenths};
+                      .gain_label = sdr_gain_label, .gain_tenths = sdr_gain_tenths, .agc_tenths = sdr_agc_tenths};
 static bool s_panel;                        /* Controls panel is up */
 static bool s_adsb, s_adsb_req;             /* in ADS-B mode / asked for it */
 static int s_av_action;                     /* last ADS-B screen key fired */
@@ -743,6 +743,7 @@ void ui_run(const touch_cal_t *cal)
         int64_t t0 = esp_timer_get_time();
         int n = spectrum_size();
         sdr_ring_latest(s_iq, IQ_PER_FRAME * 2);
+        sdr_agc_feed(s_iq, IQ_PER_FRAME * 2);
         spectrum_compute(s_iq, IQ_PER_FRAME / n, s_db);
         show_audio();
         view_render(s_db, n, sdr_freq());
@@ -774,6 +775,8 @@ void ui_run(const touch_cal_t *cal)
                      "usb err %" PRIu32 " backlog max %" PRIu32 ", ram %u KB (min %u, dma %u)",
                      nf * 1e6 / (t2 - t_log), t_dsp / 1e3 / nf, t_lcd / 1e3 / nf, n, view_floor(),
                      (b - b_log) / ((t2 - t_log) / 1e6) / 1e6, us.bulk_errors, us.max_backlog, fk, mk, dk);
+            if (sdr_gain_index() == 0)
+                ESP_LOGI(TAG, "gain AGC at %.1f dB, peak %.1f dBFS", sdr_agc_tenths() / 10.0, sdr_agc_peak_db());
             if (audio_ok()) {
                 int load, lag;
                 audio_stats(&load, &lag);

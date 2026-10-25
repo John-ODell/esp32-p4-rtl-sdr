@@ -2,6 +2,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_log.h"
@@ -11,6 +12,7 @@
 #include "rtlsdr_usb.h"
 #include "usb/usb_host.h"
 #include "sdr.h"
+#include "agc.h"
 
 static const char *TAG = "sdr";
 
@@ -35,6 +37,11 @@ static uint64_t s_lost;
 static int s_gain_tenths[NGAIN];              /* [0] unused (AGC), then every tuner gain step */
 static char s_gain_lbl[NGAIN][24];
 static int s_npreset = 1, s_gain_idx, s_want_tenths = -1;
+static agc_t s_agc;                           /* AGC (index 0): the tuner's manual gain, set from the samples */
+static int s_agc_idx;                         /* the step it uses, 1..s_npreset-1; 0 until first used */
+static float s_agc_peak;
+
+static int64_t now_ms(void) { return esp_timer_get_time() / 1000; }
 
 static void rx_cb(unsigned char *buf, uint32_t len, void *ctx)
 {
@@ -162,6 +169,7 @@ void sdr_set_freq(uint32_t hz)
     if (hz > 1766000000) hz = 1766000000;
     s_freq = hz;
     if (s_dev) rtlsdr_set_center_freq(s_dev, hz);
+    agc_reset(&s_agc, now_ms());             /* the ring holds the old frequency for a moment */
 }
 
 uint32_t sdr_freq(void) { return s_freq; }
@@ -188,13 +196,35 @@ void sdr_set_gain_index(int i)
     if (!s_dev) return;
     s_gain_idx = i;
     s_want_tenths = sdr_gain_tenths(i);
+    rtlsdr_set_tuner_gain_mode(s_dev, 1);    /* never the tuner's own AGC: it overloads on strong FM (#44) */
     if (i == 0) {
-        rtlsdr_set_tuner_gain_mode(s_dev, 0);
+        if (s_npreset < 2) return;
+        if (s_agc_idx < 1 || s_agc_idx >= s_npreset) {   /* first use: start from about 30 dB */
+            s_agc_idx = 1;
+            for (int k = 1; k < s_npreset; k++)
+                if (abs(s_gain_tenths[k] - 300) < abs(s_gain_tenths[s_agc_idx] - 300)) s_agc_idx = k;
+        }
+        rtlsdr_set_tuner_gain(s_dev, s_gain_tenths[s_agc_idx]);
+        agc_reset(&s_agc, now_ms());
     } else {
-        rtlsdr_set_tuner_gain_mode(s_dev, 1);
         rtlsdr_set_tuner_gain(s_dev, s_gain_tenths[i]);
     }
 }
+
+void sdr_agc_feed(const uint8_t *iq, size_t n)
+{
+    if (!s_dev || s_gain_idx != 0 || s_npreset < 2) return;
+    s_agc_peak = agc_peak(iq, n);
+    int k = 1 + agc_next(&s_agc, s_agc_peak, s_agc_idx - 1, s_gain_tenths + 1, s_npreset - 1, now_ms());
+    if (k == s_agc_idx) return;
+    ESP_LOGI(TAG, "agc: peak %.1f dBFS, gain %s -> %s", 20 * log10f(s_agc_peak + 1e-6f), s_gain_lbl[s_agc_idx],
+             s_gain_lbl[k]);
+    s_agc_idx = k;
+    rtlsdr_set_tuner_gain(s_dev, s_gain_tenths[k]);
+}
+
+int sdr_agc_tenths(void) { return s_gain_idx == 0 && s_agc_idx > 0 ? s_gain_tenths[s_agc_idx] : -1; }
+float sdr_agc_peak_db(void) { return 20 * log10f(s_agc_peak + 1e-6f); }
 
 uint64_t sdr_ring_latest(uint8_t *dst, size_t n)
 {
