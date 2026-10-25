@@ -2,8 +2,8 @@
 #include "agc.h"
 
 #define AGC_HI     0.30f                     /* -10.5 dBFS: step down above this */
-#define AGC_AIM    0.22f                     /* -13 dBFS: where a step lands */
-#define AGC_LO     0.11f                     /* -19 dBFS: step up after AGC_RISE_MS below this */
+#define AGC_AIM    0.16f                     /* -16 dBFS: where a step lands, 5.5 dB under AGC_HI for the jitter */
+#define AGC_LO     0.063f                    /* -24 dBFS: step up after AGC_RISE_MS below this */
 #define AGC_CLIP   0.98f                     /* at the rails the real level is unknown: drop 10 dB */
 #define AGC_MAX_UP 100                       /* tenths: the most one step up adds */
 
@@ -37,13 +37,15 @@ int agc_next(agc_t *a, float peak, int cur, const int *tenths, int n, int64_t no
     if (peak > AGC_HI) {
         a->t_low = -1;
         int drop = peak >= AGC_CLIP ? 100 : (int)ceilf(200 * log10f(peak / AGC_AIM));
-        int want = tenths[cur] - drop;       /* drop is at least 2.7 dB above AGC_HI */
+        int want = tenths[cur] - drop;       /* drop is at least 5.5 dB above AGC_HI */
         while (next > 0 && tenths[next] > want) next--;
     } else if (peak < AGC_LO) {
         if (a->t_low < 0) a->t_low = now_ms;
         if (now_ms - a->t_low < AGC_RISE_MS) return cur;
+        /* Half the room: some of the R828D's steps do twice what their labels say, and going
+         * too far up means coming back down, which is how an AGC hunts. */
         float room = peak > 1e-3f ? 200 * log10f(AGC_AIM / peak) : AGC_MAX_UP;
-        int want = tenths[cur] + (int)fminf(room, AGC_MAX_UP);
+        int want = tenths[cur] + (int)fminf(room / 2, AGC_MAX_UP);
         while (next + 1 < n && tenths[next + 1] <= want) next++;
     } else {
         a->t_low = -1;

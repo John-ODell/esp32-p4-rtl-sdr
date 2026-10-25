@@ -2,7 +2,7 @@
 /* Software AGC for the tuner (#44). The R828D's own AGC runs the gain up until a strong FM station
  * sits at the top of the 8-bit ADC, and RDS then loses half its blocks. So the GAIN page's AGC sets
  * the tuner's manual gain from the raw samples instead: down at once when the peak passes -10.5 dBFS,
- * aiming for -13; up after a second below -19 dBFS, never past -13. No ESP-IDF calls, so
+ * aiming for -16; up after a second below -24 dBFS, by half the way to -16. No ESP-IDF calls, so
  * tools/agc_test runs it on a PC. */
 #include <stddef.h>
 #include <stdint.h>

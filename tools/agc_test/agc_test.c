@@ -32,6 +32,21 @@ static float peak_at(float base_db, int i)
 
 static float db(float p) { return 20 * log10f(p); }
 
+/* The kit's R828D: its real gain steps are bigger than their labels in places (a 5.3 dB step down
+ * measured over 11 dB), and a live band's peak jitters from frame to frame. Here the steps
+ * between 12.5 and 25.4 dB count double, and each frame's peak is off by up to 3 dB either way. */
+static float real_db(int i)
+{
+    int t = G[i];
+    return (t <= 125 ? t : t <= 254 ? t + (t - 125) : t + 129) / 10.0f;
+}
+
+static float peak_real(float base_db, int i, float jitter_db)
+{
+    float p = powf(10, (base_db + real_db(i) + jitter_db) / 20);
+    return p > 0.995f ? 0.995f : p;
+}
+
 typedef struct { int idx, changes, last_change_ms; float max_after_ms_db; } run_t;
 
 /* frames from t0_ms to t1_ms with the signal at base_db; counts gain changes */
@@ -56,7 +71,7 @@ int main(void)
     float p = db(peak_at(-35, r.idx));
     printf("strong station: %.1f dB gain, peak %.1f dBFS, %d changes, last at %d ms\n", G[r.idx] / 10.0, p,
            r.changes, r.last_change_ms);
-    CHECK(p <= -10 && p >= -19, "strong station settles between -19 and -10 dBFS (%.1f)", p);
+    CHECK(p <= -10 && p >= -27, "strong station settles between -27 and -10 dBFS (%.1f)", p);
     CHECK(r.last_change_ms < 2000, "and in under 2 s (last change at %d ms)", r.last_change_ms);
     CHECK(r.changes <= 3, "in a few steps (%d)", r.changes);
     CHECK(db(peak_at(-35, index_of(496))) > -1, "(the model clips at full gain, %.1f dBFS)", db(peak_at(-35, index_of(496))));
@@ -79,7 +94,7 @@ int main(void)
     p = db(peak_at(-58, m.idx));
     printf("climbing band: %.1f dB gain, peak %.1f dBFS, loudest %.1f, %d changes\n", G[m.idx] / 10.0, p,
            m.max_after_ms_db, m.changes);
-    CHECK(p <= -10 && p >= -19, "a band climbing from -28 dBFS ends between -19 and -10 dBFS (%.1f)", p);
+    CHECK(p <= -10 && p >= -27, "a band climbing from -28 dBFS ends between -27 and -10 dBFS (%.1f)", p);
     CHECK(m.max_after_ms_db <= -10.5f, "and never steps up past the high mark on the way (%.1f dBFS)", m.max_after_ms_db);
 
     /* a station keys up while the band is at full gain */
@@ -88,12 +103,37 @@ int main(void)
     CHECK(p <= -10, "a station appearing at full gain is backed off within 1 s (%.1f dBFS at %.1f dB)", p, G[r.idx] / 10.0);
     run(&a, &r, -38, 26000, 40000);
     p = db(peak_at(-38, r.idx));
-    CHECK(p <= -10 && p >= -19 && r.last_change_ms < 28000, "and settles in the window (%.1f dBFS, last change %d ms)",
+    CHECK(p <= -10 && p >= -27 && r.last_change_ms < 28000, "and settles in the window (%.1f dBFS, last change %d ms)",
           p, r.last_change_ms);
 
     /* the station goes away: back up to full gain */
     run(&a, &r, -75, 40000, 55000);
     CHECK(r.idx == NG - 1, "when it goes, the gain climbs back to full (%.1f dB)", G[r.idx] / 10.0);
+
+    /* on the real tuner model with a jittery band, it settles and stops: no hunting */
+    int worst_changes = 0;
+    for (int start = 0; start < NG; start += 4)
+    for (float base = -30; base >= -60; base -= 5) {
+        agc_reset(&a, 0);
+        int idx = start, changes = 0, last = 0;
+        float loudest = -200;
+        srand(7);
+        for (int t = 0; t < 40000; t += FRAME_MS) {
+            float jit = (rand() / (float)RAND_MAX - 0.5f) * 6;
+            float pk = peak_real(base, idx, jit);
+            if (t >= 20000 && db(pk) > loudest) loudest = db(pk);
+            int n2 = agc_next(&a, pk, idx, G, NG, t);
+            if (n2 != idx) { changes++; last = t; idx = n2; }
+        }
+        float mid = db(peak_real(base, idx, 0));
+        if (changes > worst_changes) worst_changes = changes;
+        CHECK(last < 20000, "band at %.0f dBFS from %.1f dB: stops moving within 20 s (last change at %d ms, %d changes)",
+              base, G[start] / 10.0, last, changes);
+        CHECK(loudest <= -6 && (mid >= -27 || idx == NG - 1), "band at %.0f dBFS from %.1f dB: then stays clear of overload "
+              "and not far down (%.1f, loudest %.1f)", base, G[start] / 10.0, mid, loudest);
+        CHECK(changes <= 4, "band at %.0f dBFS from %.1f dB: settles in a few moves, not by hunting (%d)", base, G[start] / 10.0, changes);
+    }
+    printf("real tuner: 8 starting gains x 7 band levels, at most %d changes in 40 s\n", worst_changes);
 
     /* nothing moves while a change settles */
     agc_reset(&a, 0);
