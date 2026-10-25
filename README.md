@@ -232,7 +232,7 @@ leaves the board running and reattaches if the USB serial port drops out, which 
 | `main/spectrum.c` | Hann window, FFT of 1024 to 4096 points (set by zoom), averaged per frame |
 | `main/view.c`, `main/panel.c` | all receiver and menu drawing, in five looks and both orientations (no ESP-IDF calls) |
 | `main/ui.c` | receiver loop, touch tracker, saved settings, stream recovery, mode switching |
-| `main/demod.c` | audio demodulator: FIR decimation to 480 kS/s, WFM, NFM or AM, 48 kHz out, squelch (no ESP-IDF calls) |
+| `main/demod.c` | audio demodulator: CIC decimation to 480 kS/s, WFM, NFM or AM, 48 kHz out, squelch (no ESP-IDF calls) |
 | `main/rds.c` | RDS: 57 kHz down-mix, bit timing, block sync, station name and RadioText (no ESP-IDF calls) |
 | `main/dsp.c` | the FIR filters and atan2 that `demod.c` and `rds.c` share |
 | `main/audio.c` | ES8311 codec, I2S, and the task that feeds the demodulator from the IQ ring |
@@ -268,14 +268,17 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
   and 76% in two logs from before the port. No position jumped. For the 18 minutes the serial log
   covered, the decoder stayed at 22% load with 0 bytes dropped. The logs are from different days with different traffic, so treat the
   comparison as rough.
+- Audio demodulator, timed on core 0 with nothing else running: WFM (with RDS) 41% of real time,
+  NFM 27%, AM 35%. On the receiver with the V4 streaming, WFM showed 43 to 44% for a minute, lag
+  under 20 ms, no task watchdog, and the spectrum held 9.6 fps.
 - Internal RAM: 75 KB free on the receiver at boot. The first Wi-Fi or BLE visit costs 11 KB once
   (the C6 link stays up), leaving 64 KB. Later visits return to the same figure, and the low-water
   mark held at 43 KB. The receiver and ADS-B lines in the serial log report this every 5 s.
 
 ## Limits
 
-- **Audio has not been heard yet.** The demodulator passes its host test, but it has not been run
-  on the kit with a speaker, so its load on the P4 and the sound itself are still to be checked.
+- **Audio has not been heard yet.** The demodulator passes its host test and runs on the kit (WFM
+  at 43% of core 0, see "Measured"), but nobody has listened to it on a speaker yet.
   FM is mono, because the kit has one speaker output. RDS has only been decoded from synthesized
   stations so far.
 - Tested only with the RTL-SDR Blog V4 and on chip revision v1.0. The rev3 image is built but has

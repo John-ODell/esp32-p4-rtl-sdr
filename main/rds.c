@@ -5,12 +5,15 @@
 #include "rds.h"
 
 #define MPX_RATE 480000
-#define RATE     24000                        /* after /20 */
+#define PRE      4                            /* mixed samples summed in fours: 120 kS/s */
+#define RATE     24000                        /* after /4 and /5 */
 #define BIT_RATE 1187.5f
 #define HALF     10                           /* samples in half a bit (10.1) */
 #define CAP      1024                         /* MPX samples per filter pass */
 
-static fir_t s_lp;                            /* complex, +-2.6 kHz, 480k -> 24k */
+static fir_t s_lp;                            /* complex, +-2.6 kHz, 120k -> 24k */
+static float s_br, s_bi;                      /* sum of the mixed samples so far, */
+static int s_bn;                              /* and how many (0..PRE-1) */
 static float s_nco[160][2];                   /* 57 kHz at 480 kS/s repeats every 160 samples */
 static int s_nco_i;
 static float s_zr, s_zi;                      /* mean of x^2: twice the carrier phase */
@@ -179,14 +182,19 @@ bool rds_init(void)
         s_nco[i][0] = cosf(2 * PI_F * 57000.0f * i / MPX_RATE);
         s_nco[i][1] = -sinf(2 * PI_F * 57000.0f * i / MPX_RATE);
     }
-    if (!fir_alloc(&s_lp, 129, MPX_RATE / RATE, 2, CAP)) return false;
+    if (!fir_alloc(&s_lp, 41, MPX_RATE / PRE / RATE, 2, CAP / PRE + 1)) return false;
     rds_reset();
     return true;
 }
 
 void rds_reset(void)
 {
-    fir_design(&s_lp, 129, MPX_RATE, 2600, 21400, 55);
+    /* The sum of 4 has nulls at multiples of 120 kHz, so what it lets fold into +-2.6 kHz is
+     * over 30 dB down and comes from above 60 kHz in the multiplex, where there is only noise. */
+    fir_design(&s_lp, 41, MPX_RATE / PRE, 2600, 21400, 55);
+    s_br = s_bi = 0;
+    s_bn = 0;
+    s_nco_i = 0;                              /* with s_bn: a sum of 4 never crosses the NCO's wrap */
     s_zr = s_zi = 0;
     s_c = 1;
     s_s = 0;
@@ -253,16 +261,36 @@ static void sample(float re, float im)
 
 void rds_process(const float *mpx, int n)
 {
-    float out[2 * (CAP / 20 + 2)];
+    float out[2 * (CAP / PRE / 5 + 2)];
     while (n > 0) {
-        int m = n < CAP ? n : CAP;
-        float *in = fir_in(&s_lp);
+        int m = n < CAP ? n : CAP, j = 0;
+        float *in = fir_in(&s_lp), br = s_br, bi = s_bi;   /* locals: the stores to in can't touch them */
+        int nco = s_nco_i, bn = s_bn;
         for (int i = 0; i < m; i++) {
-            in[2 * i] = mpx[i] * s_nco[s_nco_i][0];
-            in[2 * i + 1] = mpx[i] * s_nco[s_nco_i][1];
-            if (++s_nco_i == 160) s_nco_i = 0;
+            if (bn == 0 && m - i >= PRE) {                 /* a whole sum at once, no branches */
+                const float *c = s_nco[nco], *x = mpx + i;
+                br = x[0] * c[0] + x[1] * c[2] + x[2] * c[4] + x[3] * c[6];
+                bi = x[0] * c[1] + x[1] * c[3] + x[2] * c[5] + x[3] * c[7];
+                i += PRE - 1;
+                nco += PRE;
+                if (nco == 160) nco = 0;
+            } else {
+                br += mpx[i] * s_nco[nco][0];
+                bi += mpx[i] * s_nco[nco][1];
+                if (++nco == 160) nco = 0;
+                if (++bn < PRE) continue;
+            }
+            in[2 * j] = br * (1.0f / PRE);
+            in[2 * j + 1] = bi * (1.0f / PRE);
+            j++;
+            br = bi = 0;
+            bn = 0;
         }
-        int k = fir_run(&s_lp, m, out);
+        s_br = br;
+        s_bi = bi;
+        s_nco_i = nco;
+        s_bn = bn;
+        int k = fir_run(&s_lp, j, out);
         for (int i = 0; i < k; i++) sample(out[2 * i], out[2 * i + 1]);
         mpx += m;
         n -= m;
