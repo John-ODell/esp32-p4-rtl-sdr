@@ -25,6 +25,7 @@ typedef struct {
     int gain_idx, gain_n;                    /* 0 = AGC */
     const char *(*gain_label)(int i);
     int (*gain_tenths)(int i);               /* tenths of a dB for a step, -1 for AGC */
+    int (*agc_tenths)(void);                 /* the gain the AGC is at, -1 if unknown; may be NULL */
     bool range_auto;
     int ref_db, range_db;                    /* manual scale: top (dBFS) and height (dB) */
     int zoom, bw, band;                      /* indexes into the tables below; band -1 = none */

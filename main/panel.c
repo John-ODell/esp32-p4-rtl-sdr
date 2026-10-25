@@ -148,7 +148,7 @@ static void build(const ctl_t *c)
     case P_GAIN: {
         int h1 = (bh - GAP) * 55 / 100;
         gain_text(c, v, sizeof v);
-        stepper(by, h1, K_GAIN_DN, K_GAIN_UP, v, c->gain_idx ? "tuner gain" : "tuner AGC");
+        stepper(by, h1, K_GAIN_DN, K_GAIN_UP, v, c->gain_idx ? "tuner gain" : "auto gain");
         static const char *pl[4] = {"AGC", "15 dB", "30 dB", "MAX"};
         int t = c->gain_tenths(c->gain_idx);
         for (int i = 0; i < 4; i++) {
@@ -349,7 +349,10 @@ static int act(ctl_t *c, int id, bool *page_change)
     }
     if (c->gain_n > 1 && (id == K_GAIN_DN || id == K_GAIN_UP)) {
         int g = c->gain_idx;
-        if (g == 0) g = nearest_gain(c, 300);            /* leave AGC from the middle */
+        if (g == 0) {                                    /* leave AGC from where it was, or the middle */
+            int t = c->agc_tenths ? c->agc_tenths() : -1;
+            g = nearest_gain(c, t >= 0 ? t : 300);
+        }
         else g = clampi(g + (id == K_GAIN_UP ? 1 : -1), 1, c->gain_n - 1);
         if (g == c->gain_idx) return 0;
         c->gain_idx = g;

@@ -129,7 +129,7 @@ The menu is eight big tiles:
 
 | Tile | Choices |
 |---|---|
-| **Gain** | -/+ through every tuner gain step, or AGC, 15, 30, MAX |
+| **Gain** | -/+ through every tuner gain step, or AGC, 15, 30, MAX. AGC sets the tuner's gain from the samples, keeping the band's loudest peak about 7 dB under full scale (-/+ steps from the gain it was using) |
 | **Range** | auto, or the top level and the span, -/+ in 5 dB steps |
 | **Zoom** | 2.4 MHz, 1.2 MHz, 600 kHz, 300 kHz |
 | **Audio** | the filter, which also picks the mode: WFM 200k, NFM 25k, NFM 12.5k, AM 8k. Volume -/+ (0 is off) and squelch -/+ (0 is open; each step asks for 3 dB more: on FM, of quieting, so a station already on the air opens it; on AM, of level above the noise it has heard) |
@@ -220,6 +220,9 @@ portrait (`portrait-*.png`).
 demodulator on synthesized FM and AM stations (with a neighbour and a stereo pilot) and checks the
 tone that comes out and the squelch. It also builds a broadcast station with RDS groups and
 checks the decoded ID, name and RadioText, with the station's clock up to 100 ppm off.
+`tools/agc_test` runs the AGC against a model of the R828D's gain steps, some of which do twice
+what their labels say, with a band that jitters 3 dB from frame to frame, and checks that it settles
+near the top of the ADC without overloading or hunting.
 `tools/capture_log.py PORT SECONDS` resets the kit and prints its serial log. With `--attach` it
 leaves the board running and reattaches if the USB serial port drops out, which suits long runs.
 
@@ -229,6 +232,7 @@ leaves the board running and reattaches if the USB serial port drops out, which 
 |---|---|
 | `main/main.c` | boot, splash, calibration, link check |
 | `main/sdr.c` | dongle open, tune and gain; `read_async` into a 1 MB PSRAM IQ ring |
+| `main/agc.c` | the GAIN page's AGC: steps the tuner's gain from each frame's peak (no ESP-IDF calls) |
 | `main/spectrum.c` | Hann window, FFT of 1024 to 4096 points (set by zoom), averaged per frame |
 | `main/view.c`, `main/panel.c` | all receiver and menu drawing, in five looks and both orientations (no ESP-IDF calls) |
 | `main/ui.c` | receiver loop, touch tracker, saved settings, stream recovery, mode switching |
@@ -271,6 +275,10 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
 - Audio demodulator on the receiver with the V4 streaming, WFM: 45 to 46% of core 0 on a station
   with RDS on the spectrum screen, and 39% with a menu open (no station tuned). Lag under 20 ms, no
   task watchdog, spectrum at 9.7 fps.
+- AGC on a strong local FM station, with weak RDS and the antenna in a poor spot: it settled at 12.5 dB
+  with the band's peak at -8 to -11 dBFS and held there for a minute, and RDS stayed in sync with
+  34% of its blocks bad. A fixed 14.4 dB gave about 50% bad and 19.7 dB overloaded. The R828D's own
+  AGC, which 1.2.0 used, overloaded the dongle on such a station (#44).
 - Internal RAM: 75 KB free on the receiver at boot. The first Wi-Fi or BLE visit costs 11 KB once
   (the C6 link stays up), leaving 64 KB. Later visits return to the same figure, and the low-water
   mark held at 43 KB. The receiver and ADS-B lines in the serial log report this every 5 s.
@@ -280,8 +288,8 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
 - **Audio has not been heard yet.** The demodulator passes its host test and runs on the kit (WFM
   at about 45% of core 0, see "Measured"), but nobody has listened to it on a speaker yet.
   FM is mono, because the kit has one speaker output.
-- On a strong FM station the tuner AGC can drive the dongle close to full scale, and RDS then loses
-  about half its blocks. A fixed gain around 15 dB (MENU › GAIN) decodes far more cleanly (#44).
+- AGC sets the gain from the loudest signal in the whole span, so a strong station nearby can hold
+  it down while you listen to a weak one. Zoom doesn't change this; a fixed gain does.
 - Tested only with the RTL-SDR Blog V4 and on chip revision v1.0. The rev3 image is built but has
   not been run on hardware.
 - Wi-Fi scanning covers 2.4 GHz only, because the C6 has no 5 GHz radio.

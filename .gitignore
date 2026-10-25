@@ -12,3 +12,4 @@ __pycache__/
 .agents/skills/
 tools/demod_test/demod_test
 tools/bmp_test/bmp_test
+tools/agc_test/agc_test
