@@ -11,3 +11,4 @@ __pycache__/
 .claude/skills/
 .agents/skills/
 tools/demod_test/demod_test
+tools/bmp_test/bmp_test

@@ -354,6 +354,32 @@ static void render_all(const char *dir, const char *tag, uint32_t freq, int pres
         snprintf(path, sizeof path, "%s/%s%s-splash.png", dir, tag, view_theme_name(t));
         write_png(path, fb, LCD_W, LCD_H);
     }
+    {                                       /* SPLASH.BMP from the card: a made-up picture, status lines over it */
+        size_t len = 54 + (size_t)LCD_W * LCD_H * 3;
+        uint8_t *bmp = calloc(1, len);
+        bmp[0] = 'B'; bmp[1] = 'M';
+        bmp[10] = 54; bmp[14] = 40; bmp[26] = 1; bmp[28] = 24;
+        bmp[18] = LCD_W & 0xFF; bmp[19] = LCD_W >> 8;
+        int nh = -LCD_H;                    /* top-down */
+        memcpy(bmp + 22, &nh, 4);
+        for (int y = 0; y < LCD_H; y++)
+            for (int x = 0; x < LCD_W; x++) {
+                uint8_t *p = bmp + 54 + ((size_t)y * LCD_W + x) * 3;
+                int band = ((x + y) / 24) & 1;
+                p[0] = (uint8_t)(120 + 100 * y / LCD_H);          /* B */
+                p[1] = (uint8_t)(band ? 40 : 90);                 /* G */
+                p[2] = (uint8_t)(200 * x / LCD_W);                /* R */
+            }
+        view_set_theme(0);
+        view_splash_image(bmp, len);
+        view_splash_line(LCD_H - 24, "hold screen to recalibrate", SPLASH_DIM);
+        view_splash_line(view_splash_text_y(), "USB link OK: 4.80 MB/s, 0 bytes lost", SPLASH_OK);
+        view_splash_line(view_splash_text_y() + 32, "RTL-SDR Blog V4 (R828D)", SPLASH_OK);
+        char path[512];
+        snprintf(path, sizeof path, "%s/%ssplash-custom.png", dir, tag);
+        write_png(path, fb, LCD_W, LCD_H);
+        free(bmp);
+    }
     char path[512];
     snprintf(path, sizeof path, "%s/%sthemes.png", dir, tag);
     write_png(path, sheet, SW, SH);
