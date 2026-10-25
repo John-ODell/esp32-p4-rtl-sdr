@@ -11,7 +11,8 @@ gave P4 SDR its single-frame aircraft positions and jump checks.
   with the boot status lines on the same background. `tools/preview` renders it for every look.
 - Audio out of the kit's speaker connector (ES8311): WFM, NFM and AM, picked by the filter, with
   volume and squelch on the new AUDIO page (it replaces FILTER) and a mode plate on the spectrum.
-  `tools/demod_test` checks the demodulator on a PC. Not yet heard on hardware.
+  `tools/demod_test` checks the demodulator on a PC. On the kit WFM takes 43% of core 0. Not yet
+  heard on a speaker.
 - The squelch fades audio in and out over 5 ms instead of switching it, and AM picks up a new
   carrier's level at once, so opening and closing shouldn't click.
 - Channel memories: MENU › SCAN › SAVE stores the tuned frequency and filter in one of 8 slots;

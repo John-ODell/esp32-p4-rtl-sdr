@@ -2,7 +2,7 @@
 /* Audio demodulator for the tuned frequency (the centre of the IQ stream): 2.4 MS/s IQ in,
  * 48 kHz mono audio out. No ESP-IDF calls, so tools/demod_test runs it on a PC.
  *
- *   2.4 MS/s --FIR /5--> 480 kS/s --+-- WFM: discriminator, /5, 75 us de-emphasis, /2 (15 kHz);
+  *   2.4 MS/s --CIC /5--> 480 kS/s --+-- WFM: discriminator, /5, 75 us de-emphasis, /2 (15 kHz);
  *                                   |        the multiplex also feeds the RDS decoder (rds.h)
  *                                   +-- NFM, AM: /5, channel filter /2, discriminator or envelope
  *

@@ -48,34 +48,31 @@ int fir_run(fir_t *f, int m, float *out)
     const int n = f->n, w = f->w, total = n - 1 + m;
     const float *h = f->h;
     int k = 0, p;
+    /* two or four running sums, so the multiply-adds don't each wait for the last one */
     for (p = n - 1 + f->phase; p < total; p += f->d) {
         const float *x = f->buf + (p - (n - 1)) * w;
+        int j = 0;
         if (w == 2) {
-            float re = 0, im = 0;
-            for (int j = 0; j < n; j++) { re += h[j] * x[2 * j]; im += h[j] * x[2 * j + 1]; }
-            out[2 * k] = re;
-            out[2 * k + 1] = im;
+            float re0 = 0, im0 = 0, re1 = 0, im1 = 0;
+            for (; j + 1 < n; j += 2) {
+                re0 += h[j] * x[2 * j];         im0 += h[j] * x[2 * j + 1];
+                re1 += h[j + 1] * x[2 * j + 2]; im1 += h[j + 1] * x[2 * j + 3];
+            }
+            for (; j < n; j++) { re0 += h[j] * x[2 * j]; im0 += h[j] * x[2 * j + 1]; }
+            out[2 * k] = re0 + re1;
+            out[2 * k + 1] = im0 + im1;
         } else {
-            float a = 0;
-            for (int j = 0; j < n; j++) a += h[j] * x[j];
-            out[k] = a;
+            float a0 = 0, a1 = 0, a2 = 0, a3 = 0;
+            for (; j + 3 < n; j += 4) {
+                a0 += h[j] * x[j];         a1 += h[j + 1] * x[j + 1];
+                a2 += h[j + 2] * x[j + 2]; a3 += h[j + 3] * x[j + 3];
+            }
+            for (; j < n; j++) a0 += h[j] * x[j];
+            out[k] = (a0 + a1) + (a2 + a3);
         }
         k++;
     }
     f->phase = p - total;
     memmove(f->buf, f->buf + m * w, (n - 1) * w * sizeof(float));
     return k;
-}
-
-/* within 1e-5 rad */
-float fast_atan2(float y, float x)
-{
-    float ax = fabsf(x), ay = fabsf(y);
-    float mx = ax > ay ? ax : ay, mn = ax > ay ? ay : ax;
-    if (mx == 0) return 0;
-    float a = mn / mx, s = a * a;
-    float r = ((-0.0464964749f * s + 0.15931422f) * s - 0.327622764f) * s * a + a;
-    if (ay > ax) r = 1.57079637f - r;
-    if (x < 0) r = PI_F - r;
-    return y < 0 ? -r : r;
 }

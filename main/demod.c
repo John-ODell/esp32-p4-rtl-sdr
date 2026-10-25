@@ -8,17 +8,22 @@
 
 #define CHUNK 4800                            /* IQ pairs per pass: 2 ms */
 /* mean square change of the discriminator's phase step on noise alone, per filter (demod_test) */
-#define WFM_NOISE   5.6f
+#define WFM_NOISE   3.1f
 #define NFM25_NOISE 1.95f
 #define NFM12_NOISE 0.55f
 
 /* ------------------------------------------------------------------------- state -- */
 
-static fir_t s_a;                             /* 2.4 MS/s -> 480 kS/s, complex */
+/* 2.4 MS/s -> 480 kS/s: a 5th-order CIC on the raw bytes, integer adds only. Its nulls sit on
+ * every multiple of 480 kHz, so what would fold into +-100 kHz is about 60 dB down, and the
+ * passband droops 1.7 dB at 75 kHz (FM doesn't mind; NFM and AM use the middle). */
+#define CIC_N 5
+#define CIC_GAIN 3125                         /* 5^5 */
+static uint32_t s_int[CIC_N][2], s_comb[CIC_N][2];
+static int s_cic_ph;
 static fir_t s_w1, s_w2;                      /* WFM audio: 480k -> 96k -> 48k, real */
 static fir_t s_n1, s_n2;                      /* NFM / AM channel: 480k -> 96k -> 48k, complex */
 static float *s_tmp;                          /* stage outputs that feed two places */
-static float s_u8[256];
 static demod_mode_t s_mode;
 static float s_fm_gain;                       /* radians per sample -> audio */
 static float s_pre, s_pim;                    /* previous complex sample (discriminator) */
@@ -32,9 +37,7 @@ static float s_quality;                       /* dB the squelch compares: FM qui
 
 bool demod_init(void)
 {
-    for (int i = 0; i < 256; i++) s_u8[i] = (i - 127.4f) / 128.0f;
-    bool ok = fir_alloc(&s_a, 49, 5, 2, CHUNK) &&
-              fir_alloc(&s_w1, 41, 5, 1, CHUNK / 5 + 1) &&
+    bool ok = fir_alloc(&s_w1, 41, 5, 1, CHUNK / 5 + 1) &&
               fir_alloc(&s_w2, 101, 2, 1, CHUNK / 25 + 1) &&
               fir_alloc(&s_n1, 41, 5, 2, CHUNK / 5 + 1) &&
               fir_alloc(&s_n2, 161, 2, 2, CHUNK / 25 + 1);
@@ -50,8 +53,9 @@ demod_mode_t demod_mode(void) { return s_mode; }
 void demod_set(demod_mode_t mode, uint32_t bw_hz)
 {
     s_mode = mode;
-    /* 480 kS/s keeps +-100 kHz flat; everything that would fold into it is 60 dB down */
-    fir_design(&s_a, 49, DEMOD_IN_RATE, 100000, 370000, 60);
+    memset(s_int, 0, sizeof s_int);
+    memset(s_comb, 0, sizeof s_comb);
+    s_cic_ph = 0;
     if (mode == DEMOD_WFM) {
         fir_design(&s_w1, 41, 480000, 16000, 77000, 60);
         fir_design(&s_w2, 101, 96000, 15000, 19000, 50);   /* 19 kHz pilot out */
@@ -96,8 +100,9 @@ static void level(const float *x, int m, float dt_s)
 {
     if (m <= 0) return;
     float p = 0;
-    for (int i = 0; i < m; i++) p += x[2 * i] * x[2 * i] + x[2 * i + 1] * x[2 * i + 1];
-    s_pow += (p / m - s_pow) * 0.1f;                       /* about 20 ms */
+    int step = m >= 64 ? 4 : 1, used = 0;                  /* every 4th sample is plenty for a level */
+    for (int i = 0; i < m; i += step, used++) p += x[2 * i] * x[2 * i] + x[2 * i + 1] * x[2 * i + 1];
+    s_pow += (p / used - s_pow) * 0.1f;                    /* about 20 ms */
     float db = demod_level_db();
     if (!s_floor_set) { s_floor = db; s_floor_set = true; }
     if (db < s_floor) s_floor = db;
@@ -135,6 +140,26 @@ static float fm_step(float re, float im, float *acc)
     return d;
 }
 
+/* fm_step over m complex samples into d, times gain; returns the sum of the squared changes. The
+ * state lives in locals, so the stores to d don't make the compiler reload it every sample. */
+static float fm_block(const float *a, int m, float *d, float gain)
+{
+    float pre = s_pre, pim = s_pim, pd = s_pd, acc = 0;
+    for (int i = 0; i < m; i++) {
+        float re = a[2 * i], im = a[2 * i + 1];
+        float v = fast_atan2(im * pre - re * pim, re * pre + im * pim);
+        pre = re;
+        pim = im;
+        acc += (v - pd) * (v - pd);
+        pd = v;
+        d[i] = v * gain;
+    }
+    s_pre = pre;
+    s_pim = pim;
+    s_pd = pd;
+    return acc;
+}
+
 /* the squelch gate fades over 5 ms instead of switching, so it doesn't click */
 static float s_gate;
 static bool s_was_open;                       /* AM: squelch state at the last sample */
@@ -148,22 +173,69 @@ static int16_t to_s16(float v)
     return v > 32767 ? 32767 : v < -32767 ? -32767 : (int16_t)lrintf(v);
 }
 
+/* CIC_STEP: one input pair through the integrators. CIC_COMB: the combs, on every 5th pair. */
+#define CIC_STEP(re, im) do { \
+        i0 += (re); i1 += i0; i2 += i1; i3 += i2; i4 += i3; \
+        q0 += (im); q1 += q0; q2 += q1; q3 += q2; q4 += q3; \
+    } while (0)
+#define CIC_COMB(v, c) do { \
+        uint32_t t_; \
+        t_ = v - c[0]; c[0] = v; v = t_; t_ = v - c[1]; c[1] = v; v = t_; \
+        t_ = v - c[2]; c[2] = v; v = t_; t_ = v - c[3]; c[3] = v; v = t_; \
+        t_ = v - c[4]; c[4] = v; v = t_; \
+    } while (0)
+
+/* n IQ pairs at 2.4 MS/s into a, interleaved, at 480 kS/s; returns the pairs made. The sums wrap
+ * in 32 bits, which the combs undo exactly. Whole groups of 5 run unrolled. */
+static int cic(const uint8_t *iq, int n, float *a)
+{
+    const float scale = 1.0f / (128.0f * CIC_GAIN), dc = 127.4f * CIC_GAIN;
+    uint32_t i0 = s_int[0][0], i1 = s_int[1][0], i2 = s_int[2][0], i3 = s_int[3][0], i4 = s_int[4][0];
+    uint32_t q0 = s_int[0][1], q1 = s_int[1][1], q2 = s_int[2][1], q3 = s_int[3][1], q4 = s_int[4][1];
+    uint32_t ci[CIC_N], cq[CIC_N];
+    for (int s = 0; s < CIC_N; s++) { ci[s] = s_comb[s][0]; cq[s] = s_comb[s][1]; }
+    int ph = s_cic_ph, k = 0;
+    const uint8_t *p = iq, *end = iq + 2 * n;
+    while (p < end) {
+        if (ph == 0 && end - p >= 10) {
+            CIC_STEP(p[0], p[1]); CIC_STEP(p[2], p[3]); CIC_STEP(p[4], p[5]);
+            CIC_STEP(p[6], p[7]); CIC_STEP(p[8], p[9]);
+            p += 10;
+        } else {
+            CIC_STEP(p[0], p[1]);
+            p += 2;
+            if (++ph < 5) continue;
+            ph = 0;
+        }
+        uint32_t vi = i4, vq = q4;
+        CIC_COMB(vi, ci);
+        CIC_COMB(vq, cq);
+        a[2 * k] = ((float)vi - dc) * scale;
+        a[2 * k + 1] = ((float)vq - dc) * scale;
+        k++;
+    }
+    s_int[0][0] = i0; s_int[1][0] = i1; s_int[2][0] = i2; s_int[3][0] = i3; s_int[4][0] = i4;
+    s_int[0][1] = q0; s_int[1][1] = q1; s_int[2][1] = q2; s_int[3][1] = q3; s_int[4][1] = q4;
+    for (int s = 0; s < CIC_N; s++) { s_comb[s][0] = ci[s]; s_comb[s][1] = cq[s]; }
+    s_cic_ph = ph;
+    return k;
+}
+
 static int chunk(const uint8_t *iq, int n, int16_t *out)
 {
-    float *in = fir_in(&s_a);
-    for (int i = 0; i < 2 * n; i++) in[i] = s_u8[iq[i]];
     float *a = s_mode == DEMOD_WFM ? s_tmp : fir_in(&s_n1);
-    int na = fir_run(&s_a, n, a);
+    int na = cic(iq, n, a);
     int k = 0;
     if (s_mode == DEMOD_WFM) {
         level(a, na, n / (float)DEMOD_IN_RATE);
-        float *d = fir_in(&s_w1), acc = 0;
-        for (int i = 0; i < na; i++) d[i] = fm_step(a[2 * i], a[2 * i + 1], &acc) * s_fm_gain;
+        float *d = fir_in(&s_w1), acc = fm_block(a, na, d, s_fm_gain);
         rds_process(d, na);                                /* the multiplex, before the audio filters */
         if (na) decide(acc / na);
         float *e = fir_in(&s_w2);
         int nb = fir_run(&s_w1, na, e);
-        for (int i = 0; i < nb; i++) e[i] = s_deemph = e[i] + s_de_a * (s_deemph - e[i]);
+        float de = s_deemph;
+        for (int i = 0; i < nb; i++) e[i] = de = e[i] + s_de_a * (de - e[i]);
+        s_deemph = de;
         float aud[CHUNK / 50 + 2];
         k = fir_run(&s_w2, nb, aud);
         for (int i = 0; i < k; i++) out[i] = to_s16(aud[i]);
