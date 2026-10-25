@@ -38,6 +38,10 @@
 static const char *TAG = "ui";
 
 #define IQ_PER_FRAME (24 * 1024)            /* samples per frame (10 ms), split into FFTs */
+/* With the Controls panel up nothing is blitted, so a frame would take 25 ms and the FFT would run
+ * at 38 fps, crowding core 0's audio out of the shared cache. Frames there last as long as on the
+ * receiver instead, and the waterfall behind the panel fills at the same rate. */
+#define PANEL_FRAME_US 100000
 
 static uint8_t *s_iq;
 static float s_db[NFFT_MAX];
@@ -751,6 +755,10 @@ void ui_run(const touch_cal_t *cal)
         t_dsp += t1 - t0;
         t_lcd += t2 - t1;
         poll_touch(cal);
+        while (s_panel && esp_timer_get_time() - t0 < PANEL_FRAME_US) {
+            vTaskDelay(pdMS_TO_TICKS(10));
+            poll_touch(cal);
+        }
         if (s_mscan) mscan_step();
         settings_maybe_save();
         vTaskDelay(1);                          /* let IDLE1 run (task watchdog) */

@@ -14,11 +14,12 @@
 
 /* ------------------------------------------------------------------------- state -- */
 
-/* 2.4 MS/s -> 480 kS/s: a 5th-order CIC on the raw bytes, integer adds only. Its nulls sit on
- * every multiple of 480 kHz, so what would fold into +-100 kHz is about 60 dB down, and the
- * passband droops 1.7 dB at 75 kHz (FM doesn't mind; NFM and AM use the middle). */
-#define CIC_N 5
-#define CIC_GAIN 3125                         /* 5^5 */
+/* 2.4 MS/s -> 480 kS/s: a 4th-order CIC on the raw bytes, integer adds only. Its nulls sit on
+ * every multiple of 480 kHz, so what would fold into +-100 kHz is 48 dB down or more (about what
+ * the dongle's 8-bit ADC resolves), and the passband droops 1.4 dB at 75 kHz (FM doesn't mind;
+ * NFM and AM use the middle). */
+#define CIC_N 4
+#define CIC_GAIN 625                          /* 5^4 */
 static uint32_t s_int[CIC_N][2], s_comb[CIC_N][2];
 static int s_cic_ph;
 static fir_t s_w1, s_w2;                      /* WFM audio: 480k -> 96k -> 48k, real */
@@ -175,14 +176,13 @@ static int16_t to_s16(float v)
 
 /* CIC_STEP: one input pair through the integrators. CIC_COMB: the combs, on every 5th pair. */
 #define CIC_STEP(re, im) do { \
-        i0 += (re); i1 += i0; i2 += i1; i3 += i2; i4 += i3; \
-        q0 += (im); q1 += q0; q2 += q1; q3 += q2; q4 += q3; \
+        i0 += (re); i1 += i0; i2 += i1; i3 += i2; \
+        q0 += (im); q1 += q0; q2 += q1; q3 += q2; \
     } while (0)
 #define CIC_COMB(v, c) do { \
         uint32_t t_; \
         t_ = v - c[0]; c[0] = v; v = t_; t_ = v - c[1]; c[1] = v; v = t_; \
         t_ = v - c[2]; c[2] = v; v = t_; t_ = v - c[3]; c[3] = v; v = t_; \
-        t_ = v - c[4]; c[4] = v; v = t_; \
     } while (0)
 
 /* n IQ pairs at 2.4 MS/s into a, interleaved, at 480 kS/s; returns the pairs made. The sums wrap
@@ -190,8 +190,8 @@ static int16_t to_s16(float v)
 static int cic(const uint8_t *iq, int n, float *a)
 {
     const float scale = 1.0f / (128.0f * CIC_GAIN), dc = 127.4f * CIC_GAIN;
-    uint32_t i0 = s_int[0][0], i1 = s_int[1][0], i2 = s_int[2][0], i3 = s_int[3][0], i4 = s_int[4][0];
-    uint32_t q0 = s_int[0][1], q1 = s_int[1][1], q2 = s_int[2][1], q3 = s_int[3][1], q4 = s_int[4][1];
+    uint32_t i0 = s_int[0][0], i1 = s_int[1][0], i2 = s_int[2][0], i3 = s_int[3][0];
+    uint32_t q0 = s_int[0][1], q1 = s_int[1][1], q2 = s_int[2][1], q3 = s_int[3][1];
     uint32_t ci[CIC_N], cq[CIC_N];
     for (int s = 0; s < CIC_N; s++) { ci[s] = s_comb[s][0]; cq[s] = s_comb[s][1]; }
     int ph = s_cic_ph, k = 0;
@@ -207,15 +207,15 @@ static int cic(const uint8_t *iq, int n, float *a)
             if (++ph < 5) continue;
             ph = 0;
         }
-        uint32_t vi = i4, vq = q4;
+        uint32_t vi = i3, vq = q3;
         CIC_COMB(vi, ci);
         CIC_COMB(vq, cq);
         a[2 * k] = ((float)vi - dc) * scale;
         a[2 * k + 1] = ((float)vq - dc) * scale;
         k++;
     }
-    s_int[0][0] = i0; s_int[1][0] = i1; s_int[2][0] = i2; s_int[3][0] = i3; s_int[4][0] = i4;
-    s_int[0][1] = q0; s_int[1][1] = q1; s_int[2][1] = q2; s_int[3][1] = q3; s_int[4][1] = q4;
+    s_int[0][0] = i0; s_int[1][0] = i1; s_int[2][0] = i2; s_int[3][0] = i3;
+    s_int[0][1] = q0; s_int[1][1] = q1; s_int[2][1] = q2; s_int[3][1] = q3;
     for (int s = 0; s < CIC_N; s++) { s_comb[s][0] = ci[s]; s_comb[s][1] = cq[s]; }
     s_cic_ph = ph;
     return k;
