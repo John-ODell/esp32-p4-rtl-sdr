@@ -1,18 +1,21 @@
 #pragma once
 /* Software AGC for the tuner (#44). The R828D's own AGC runs the gain up until a strong FM station
  * sits at the top of the 8-bit ADC, and RDS then loses half its blocks. So the GAIN page's AGC sets
- * the tuner's manual gain from the raw samples instead: down at once when the peak passes -10.5 dBFS,
- * aiming for -16; up after a second below -24 dBFS, by half the way to -16. No ESP-IDF calls, so
- * tools/agc_test runs it on a PC. */
+ * the tuner's manual gain from the raw samples instead. It judges the loudest frame of a stretch, which
+ * is steadier than one frame: down when the last second's passes -4 dBFS, aiming for -7; up when the
+ * last two seconds' stays under -13, by half the way to -7; down 10 dB at once if a frame hits the
+ * rails. No ESP-IDF calls, so tools/agc_test runs it on a PC. */
 #include <stddef.h>
 #include <stdint.h>
 
 #define AGC_SETTLE_MS 300                    /* after a change the ring still holds samples at the old gain */
-#define AGC_RISE_MS   1000                   /* this long below the low mark before stepping up */
+#define AGC_HOLD_DOWN 10                     /* frames (1 s) whose loudest peak decides a step down */
+#define AGC_HOLD      20                     /* and a step up: longer, so jitter alone can't trigger it */
 
 typedef struct {
     int64_t t_change;                        /* last gain change or retune, ms */
-    int64_t t_low;                           /* since when the peak has stayed low, ms; -1 = it hasn't */
+    float pk[AGC_HOLD];                      /* the last frames' peaks since then */
+    int n;                                   /* how many of pk are filled */
 } agc_t;
 
 void agc_reset(agc_t *a, int64_t now_ms);    /* after a retune or a manual gain change */

@@ -1,8 +1,9 @@
 /* Host test for main/agc.c: a model tuner (the R828D's 29 gain steps, a signal whose peak rises
  * dB for dB with the gain and clips at the ADC's rails) is fed to agc_next every 100 ms frame, as
  * the receiver does. Checks: a strong station settles inside the window and stays put, a quiet band
- * climbs to full gain, a station appearing at full gain is backed off at once, nothing moves while
- * a change settles or between the marks, and agc_peak reads u8 IQ the way demod.c does.
+ * climbs to full gain, a station appearing at full gain is backed off at once, a jittery band on a
+ * model of the real tuner settles near the top of the ADC without hunting, nothing moves while a
+ * change settles or between the marks, and agc_peak reads u8 IQ the way demod.c does.
  * Build and run: make -C tools/agc_test */
 #include <math.h>
 #include <stdio.h>
@@ -71,7 +72,7 @@ int main(void)
     float p = db(peak_at(-35, r.idx));
     printf("strong station: %.1f dB gain, peak %.1f dBFS, %d changes, last at %d ms\n", G[r.idx] / 10.0, p,
            r.changes, r.last_change_ms);
-    CHECK(p <= -10 && p >= -27, "strong station settles between -27 and -10 dBFS (%.1f)", p);
+    CHECK(p <= -3 && p >= -16, "strong station settles between -16 and -3 dBFS (%.1f)", p);
     CHECK(r.last_change_ms < 2000, "and in under 2 s (last change at %d ms)", r.last_change_ms);
     CHECK(r.changes <= 3, "in a few steps (%d)", r.changes);
     CHECK(db(peak_at(-35, index_of(496))) > -1, "(the model clips at full gain, %.1f dBFS)", db(peak_at(-35, index_of(496))));
@@ -94,16 +95,16 @@ int main(void)
     p = db(peak_at(-58, m.idx));
     printf("climbing band: %.1f dB gain, peak %.1f dBFS, loudest %.1f, %d changes\n", G[m.idx] / 10.0, p,
            m.max_after_ms_db, m.changes);
-    CHECK(p <= -10 && p >= -27, "a band climbing from -28 dBFS ends between -27 and -10 dBFS (%.1f)", p);
-    CHECK(m.max_after_ms_db <= -10.5f, "and never steps up past the high mark on the way (%.1f dBFS)", m.max_after_ms_db);
+    CHECK(p <= -3 && p >= -16, "a band climbing from -28 dBFS ends between -16 and -3 dBFS (%.1f)", p);
+    CHECK(m.max_after_ms_db <= -4, "and never steps up past the high mark on the way (%.1f dBFS)", m.max_after_ms_db);
 
     /* a station keys up while the band is at full gain */
     run(&a, &r, -38, 25000, 25000 + 1000);
     p = db(peak_at(-38, r.idx));
-    CHECK(p <= -10, "a station appearing at full gain is backed off within 1 s (%.1f dBFS at %.1f dB)", p, G[r.idx] / 10.0);
+    CHECK(p <= -3, "a station appearing at full gain is backed off within 1 s (%.1f dBFS at %.1f dB)", p, G[r.idx] / 10.0);
     run(&a, &r, -38, 26000, 40000);
     p = db(peak_at(-38, r.idx));
-    CHECK(p <= -10 && p >= -27 && r.last_change_ms < 28000, "and settles in the window (%.1f dBFS, last change %d ms)",
+    CHECK(p <= -3 && p >= -16 && r.last_change_ms < 28000, "and settles in the window (%.1f dBFS, last change %d ms)",
           p, r.last_change_ms);
 
     /* the station goes away: back up to full gain */
@@ -111,11 +112,11 @@ int main(void)
     CHECK(r.idx == NG - 1, "when it goes, the gain climbs back to full (%.1f dB)", G[r.idx] / 10.0);
 
     /* on the real tuner model with a jittery band, it settles and stops: no hunting */
-    int worst_changes = 0;
+    int worst_changes = 0, worst_turns = 0;
     for (int start = 0; start < NG; start += 4)
     for (float base = -30; base >= -60; base -= 5) {
         agc_reset(&a, 0);
-        int idx = start, changes = 0, last = 0;
+        int idx = start, changes = 0, last = 0, dir = 0, turns = 0;
         float loudest = -200;
         srand(7);
         for (int t = 0; t < 40000; t += FRAME_MS) {
@@ -123,17 +124,23 @@ int main(void)
             float pk = peak_real(base, idx, jit);
             if (t >= 20000 && db(pk) > loudest) loudest = db(pk);
             int n2 = agc_next(&a, pk, idx, G, NG, t);
-            if (n2 != idx) { changes++; last = t; idx = n2; }
+            if (n2 != idx) {
+                int d = n2 > idx ? 1 : -1;
+                if (dir && d != dir) turns++;   /* up then down, or down then up */
+                dir = d; changes++; last = t; idx = n2;
+            }
         }
         float mid = db(peak_real(base, idx, 0));
         if (changes > worst_changes) worst_changes = changes;
+        if (turns > worst_turns) worst_turns = turns;
         CHECK(last < 20000, "band at %.0f dBFS from %.1f dB: stops moving within 20 s (last change at %d ms, %d changes)",
               base, G[start] / 10.0, last, changes);
-        CHECK(loudest <= -6 && (mid >= -27 || idx == NG - 1), "band at %.0f dBFS from %.1f dB: then stays clear of overload "
+        CHECK(loudest <= -1 && (mid >= -16 || idx == NG - 1), "band at %.0f dBFS from %.1f dB: then stays clear of overload "
               "and not far down (%.1f, loudest %.1f)", base, G[start] / 10.0, mid, loudest);
-        CHECK(changes <= 4, "band at %.0f dBFS from %.1f dB: settles in a few moves, not by hunting (%d)", base, G[start] / 10.0, changes);
+        CHECK(turns <= 1 && changes <= 6, "band at %.0f dBFS from %.1f dB: settles in a few moves, not by hunting (%d moves, "
+              "%d turns)", base, G[start] / 10.0, changes, turns);
     }
-    printf("real tuner: 8 starting gains x 7 band levels, at most %d changes in 40 s\n", worst_changes);
+    printf("real tuner: 8 starting gains x 7 band levels, at most %d changes in 40 s, %d turns\n", worst_changes, worst_turns);
 
     /* nothing moves while a change settles */
     agc_reset(&a, 0);
@@ -147,8 +154,8 @@ int main(void)
     /* between the marks nothing moves */
     agc_reset(&a, 0);
     r = (run_t){index_of(297), 0, 0, -200};
-    run(&a, &r, -15 - 29.7f, 0, 20000);
-    CHECK(r.changes == 0, "a peak at -15 dBFS, between the marks, changes nothing (%d)", r.changes);
+    run(&a, &r, -9 - 29.7f, 0, 20000);
+    CHECK(r.changes == 0, "a peak at -9 dBFS, between the marks, changes nothing (%d)", r.changes);
 
     /* the ends of the range */
     agc_reset(&a, 0);
