@@ -88,12 +88,12 @@ The screenshots come from `tools/preview` with made-up aircraft and neighbours.
 
    | Image | Boots on | Status |
    |---|---|---|
-   | `p4-sdr-1.1.0-rev1.bin` | v1.x (early kits) | tested on v1.0 |
-   | `p4-sdr-1.1.0-rev3.bin` | v3.1 and later | built, not tested on hardware |
+   | `p4-sdr-1.2.0-rev1.bin` | v1.x (early kits) | tested on v1.0 |
+   | `p4-sdr-1.2.0-rev3.bin` | v3.1 and later | built, not tested on hardware |
 
 4. Flash it:
    ```bash
-   esptool.py --chip esp32p4 -p PORT -b 921600 write_flash 0x0 p4-sdr-1.1.0-rev1.bin
+   esptool.py --chip esp32p4 -p PORT -b 921600 write_flash 0x0 p4-sdr-1.2.0-rev1.bin
    ```
    `PORT` looks like `/dev/cu.usbmodem…` on macOS, `/dev/ttyACM0` on Linux, or `COM5` on Windows.
    The image is a full flash image, so it clears saved settings and the touch calibration.
@@ -279,12 +279,11 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
 
 - **Audio has not been heard yet.** The demodulator passes its host test and runs on the kit (WFM
   at about 45% of core 0, see "Measured"), but nobody has listened to it on a speaker yet.
-  FM is mono, because the kit has one speaker output. RDS has only been decoded from synthesized
-  stations so far.
+  FM is mono, because the kit has one speaker output.
+- On a strong FM station the tuner AGC can drive the dongle close to full scale, and RDS then loses
+  about half its blocks. A fixed gain around 15 dB (MENU › GAIN) decodes far more cleanly (#44).
 - Tested only with the RTL-SDR Blog V4 and on chip revision v1.0. The rev3 image is built but has
   not been run on hardware.
-- Portrait has been checked in `tools/preview` only. On the kit, that it comes out the right way up
-  and that touches land in place are still to be confirmed.
 - Wi-Fi scanning covers 2.4 GHz only, because the C6 has no 5 GHz radio.
 - The kit's USB-A power is always on, so software cannot power-cycle a hung dongle. Unplug it and
   plug it back in.
