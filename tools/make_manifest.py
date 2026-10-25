@@ -46,7 +46,7 @@ def main():
                        "and Wi-Fi and BLE scanners on the module's ESP32-C6.",
         "home": f"https://github.com/{REPO}",
         "requires": [
-            "RTL-SDR Blog V4 dongle in one of the kit's USB-A ports, jumper H3 on HOST",
+            "RTL-SDR Blog V4 dongle in one of the kit's USB-A ports, with jumper H3 set for USB host (on the test kit: the two pins nearest the DEVICE label; if no dongle is found, move it to the other pair)",
             "Optional: FAT32 micro-SD card with MAP.BIN (tools/mapgen) for the ADS-B map",
         ],
         "notes": [

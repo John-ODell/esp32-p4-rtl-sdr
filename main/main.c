@@ -92,7 +92,7 @@ static void main_task(void *arg)
     char desc[96];
     int tries = 0;
     while (!sdr_open(5000, desc, sizeof desc)) {
-        if (++tries == 1) status(SPLASH_BAD, "no RTL-SDR yet: plug it in (H3 jumper on HOST)");
+        if (++tries == 1) status(SPLASH_BAD, "no RTL-SDR yet: plug it in, or move the H3 cap");
     }
     view_splash_line(LINE(2), desc, SPLASH_OK);
     status(SPLASH_TEXT, "USB link check...");
