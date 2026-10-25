@@ -268,9 +268,9 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
   and 76% in two logs from before the port. No position jumped. For the 18 minutes the serial log
   covered, the decoder stayed at 22% load with 0 bytes dropped. The logs are from different days with different traffic, so treat the
   comparison as rough.
-- Audio demodulator on the receiver with the V4 streaming, WFM on a station with RDS: 45 to 46%
-  of core 0 on the spectrum screen and 39% with a menu open, lag under 20 ms, no task watchdog,
-  spectrum at 9.7 fps.
+- Audio demodulator on the receiver with the V4 streaming, WFM: 45 to 46% of core 0 on a station
+  with RDS on the spectrum screen, and 39% with a menu open (no station tuned). Lag under 20 ms, no
+  task watchdog, spectrum at 9.7 fps.
 - Internal RAM: 75 KB free on the receiver at boot. The first Wi-Fi or BLE visit costs 11 KB once
   (the C6 link stays up), leaving 64 KB. Later visits return to the same figure, and the low-water
   mark held at 43 KB. The receiver and ADS-B lines in the serial log report this every 5 s.
