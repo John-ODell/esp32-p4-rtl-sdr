@@ -9,6 +9,7 @@
 #include "rpi_canvas.h"
 #include "pins.h"
 #include "view.h"
+#include "bmp.h"
 
 #ifdef ESP_PLATFORM
 #include "esp_heap_caps.h"
@@ -903,6 +904,13 @@ void view_splash(int frame, int frames, const char *sub)
     }
     if (frame == 0) rpi_lcd_blit(0, 0, LCD_W, LCD_H, px);
     else rpi_lcd_blit(0, by, LCD_W, SPL_SPEC + 2 + SPL_WF, px + by * LCD_W);
+}
+
+bool view_splash_image(const uint8_t *bmp, size_t len)
+{
+    if (!bmp_to_565(bmp, len, LCD_W, LCD_H, s_wf)) return false;
+    rpi_lcd_blit(0, 0, LCD_W, LCD_H, s_wf);
+    return true;
 }
 
 void view_message(const char *a, const char *b)

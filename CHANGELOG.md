@@ -1,4 +1,7 @@
 # Unreleased
+- Your own boot picture: a `SPLASH.BMP` (24- or 32-bit, the screen's size) in the root of the SD
+  card replaces the drawn splash, with the status lines over it (#22). `tools/bmp_test` checks the
+  reader on a PC, and `tools/preview` renders an example.
 - The GAIN page's AGC is now the receiver's own: it sets the tuner's manual gain from the samples,
   keeping the band's loudest peak about 7 dB under full scale, and judges a second or two of frames
   before it moves, so it settles instead of hunting. The R828D's own AGC overloaded the dongle on a

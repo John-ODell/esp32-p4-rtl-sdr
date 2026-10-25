@@ -8,6 +8,7 @@
  *   axis     frequency scale
  *   waterfall, newest line on top */
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include "spectrum.h"
 
@@ -44,6 +45,9 @@ void view_message(const char *a, const char *b);
  * band starts at view_splash_text_y(). */
 void view_splash(int frame, int frames, const char *sub);
 int view_splash_text_y(void);
+/* A custom splash (SPLASH.BMP from the card) in place of the drawn name and band: the whole
+ * screen, which the file must match exactly. False, with nothing drawn, if it doesn't. */
+bool view_splash_image(const uint8_t *bmp, size_t len);
 /* One centred 16-pixel line of text at y on the splash's background. */
 enum { SPLASH_TEXT, SPLASH_DIM, SPLASH_OK, SPLASH_BAD };
 void view_splash_line(int y, const char *s, int tone);
