@@ -1,3 +1,10 @@
+# Unreleased
+- The GAIN page's AGC is now the receiver's own: it sets the tuner's manual gain from the samples,
+  keeping the band's loudest peak about 7 dB under full scale, and judges a second or two of frames
+  before it moves, so it settles instead of hunting. The R828D's own AGC overloaded the dongle on a
+  strong FM station and RDS lost half its blocks or more (#44). On the kit it settled at 12.5 dB on
+  such a station with RDS in sync. `tools/agc_test` checks it on a PC.
+
 # 1.2.0 (2026-10-24)
 Thank you to **John Stockdale**, whose [ADS-B Scope](https://github.com/jstockdale/T-Display-P4/tree/adsb)
 gave P4 SDR its single-frame aircraft positions and jump checks.
