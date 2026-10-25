@@ -5,16 +5,21 @@
 #include "rpi_text.h"
 #include "pins.h"
 #include "font8x16.h"
-#include "esp_heap_caps.h"
 
 /* One text row at scale 2. Only the CPU touches it (rpi_lcd_blit copies it into the DMA strip),
  * so it goes in PSRAM when there is some and leaves 30 KB of internal RAM for USB DMA. */
+#ifdef ESP_PLATFORM
+#include "esp_heap_caps.h"
+#define LINE_ALLOC(n) heap_caps_malloc_prefer((n), 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT)
+#else
+#include <stdlib.h>
+#define LINE_ALLOC(n) malloc(n)
+#endif
 static uint16_t *s_line;
 
 int rpi_lcd_text(int x, int y, const char *s, uint16_t fg, uint16_t bg, int scale)
 {
-    if (!s_line && !(s_line = heap_caps_malloc_prefer(LCD_LONG * 32 * sizeof *s_line, 2,
-                                                      MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT)))
+    if (!s_line && !(s_line = LINE_ALLOC(LCD_LONG * 32 * sizeof *s_line)))
         return x;
     if (scale < 1) scale = 1;
     if (scale > 2) scale = 2;
