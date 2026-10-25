@@ -261,6 +261,12 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
   then 44 min of ADS-B. All 530 ADS-B reports showed 22% decoder load and 0 bytes dropped, with
   free internal RAM flat at 58 KB. The ADS-B log has 1,221 rows (51 aircraft), and its only long
   gaps are times when nothing was heard. Every log closed with 0 rows dropped.
+- ADS-B single-frame positions on live aircraft (logic from John Stockdale's
+  [ADS-B Scope](https://github.com/jstockdale/T-Display-P4/tree/adsb)): a 38-minute log of
+  53 aircraft. In 86% of a plane's back-to-back 5-second rows its position had moved, against 69%
+  and 76% in two logs from before the port. No position jumped. For the 18 minutes the serial log
+  covered, the decoder stayed at 22% load with 0 bytes dropped. The logs are from different days with different traffic, so treat the
+  comparison as rough.
 - Internal RAM: 75 KB free on the receiver at boot. The first Wi-Fi or BLE visit costs 11 KB once
   (the C6 link stays up), leaving 64 KB. Later visits return to the same figure, and the low-water
   mark held at 43 KB. The receiver and ADS-B lines in the serial log report this every 5 s.
