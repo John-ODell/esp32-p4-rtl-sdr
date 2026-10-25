@@ -72,7 +72,7 @@ The screenshots come from `tools/preview` with made-up aircraft and neighbours.
 |---|---|
 | Waveshare **ESP32-P4-Module-DEV-KIT** | The module carries an ESP32-C6, which runs the Wi-Fi and BLE scanners. |
 | **MHS-3.5inch Display-IPS** (480×320, ILI9486 commands over 16-bit SPI, XPT2046 resistive touch) | The tested screen. Plugs straight onto the kit's 40-pin header, pin 1 to pin 1. The older MPI3501 "3.5inch RPi Display" (four logic chips on the back) uses the same protocol but hasn't been tested. See [Is this my screen?](https://github.com/John-ODell/esp32-p4-3.5-inch-rpi-display#is-this-my-screen) |
-| **RTL-SDR Blog V4** dongle and an antenna | It goes in one of the kit's USB-A ports. Set the **H3 jumper to HOST**. This is the only dongle tested so far. |
+| **RTL-SDR Blog V4** dongle and an antenna | It goes in one of the kit's USB-A ports. Set the **H3 jumper** for USB host: on our kit that's the cap on the two pins nearest the **DEVICE** label (the HOST end found no devices). If the dongle isn't found, move the cap to the other pair. This is the only dongle tested so far. |
 | A small speaker, 8 Ω (optional) | Plugs into the kit's 2-pin speaker connector (MX1.25), driven by the on-board ES8311 codec and NS4150B amplifier. |
 | micro-SD card, FAT32 (optional) | Holds `MAP.BIN` for the ADS-B map, and the CSV logs. |
 
@@ -107,8 +107,8 @@ SHA-256 and the chip revisions it boots on.
 1. **Splash.** The splash is drawn in the saved look and plays a short tune-in animation. On first
    boot it runs the 5-point touch calibration: tap the centre of each cross.
    To redo it later, hold the screen during the splash.
-2. **Dongle.** It looks for the RTL-SDR on the USB-A ports. If nothing shows up, check the H3
-   jumper, then unplug the dongle and plug it back in.
+2. **Dongle.** It looks for the RTL-SDR on the USB-A ports. If nothing shows up, move the H3
+   cap to the other pair of pins, then unplug the dongle and plug it back in.
 3. **Link check.** A 1.5 s USB test in which the dongle sends a byte counter, so any lost byte is
    caught.
 4. **Receiver.** It starts at 100.0 MHz, in the FM broadcast band, and after that at the last frequency used.

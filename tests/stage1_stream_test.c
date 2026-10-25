@@ -185,7 +185,7 @@ void app_main(void)
     }
     if (n == 0) {
         line_out(C_BAD, "no RTL-SDR found after 20 s");
-        line_out(C_TXT, "check: H3 jumper on HOST, dongle seated");
+        line_out(C_TXT, "check: H3 cap (try the other pair), dongle seated");
         return;
     }
     char vendor[256], product[256], serial[256];
