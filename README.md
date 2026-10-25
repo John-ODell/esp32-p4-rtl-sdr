@@ -268,9 +268,9 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
   and 76% in two logs from before the port. No position jumped. For the 18 minutes the serial log
   covered, the decoder stayed at 22% load with 0 bytes dropped. The logs are from different days with different traffic, so treat the
   comparison as rough.
-- Audio demodulator, timed on core 0 with nothing else running: WFM (with RDS) 41% of real time,
-  NFM 27%, AM 35%. On the receiver with the V4 streaming, WFM showed 43 to 44% for a minute, lag
-  under 20 ms, no task watchdog, and the spectrum held 9.6 fps.
+- Audio demodulator on the receiver with the V4 streaming, WFM on a station with RDS: 45 to 46%
+  of core 0 on the spectrum screen and 39% with a menu open, lag under 20 ms, no task watchdog,
+  spectrum at 9.7 fps.
 - Internal RAM: 75 KB free on the receiver at boot. The first Wi-Fi or BLE visit costs 11 KB once
   (the C6 link stays up), leaving 64 KB. Later visits return to the same figure, and the low-water
   mark held at 43 KB. The receiver and ADS-B lines in the serial log report this every 5 s.
@@ -278,7 +278,7 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
 ## Limits
 
 - **Audio has not been heard yet.** The demodulator passes its host test and runs on the kit (WFM
-  at 43% of core 0, see "Measured"), but nobody has listened to it on a speaker yet.
+  at about 45% of core 0, see "Measured"), but nobody has listened to it on a speaker yet.
   FM is mono, because the kit has one speaker output. RDS has only been decoded from synthesized
   stations so far.
 - Tested only with the RTL-SDR Blog V4 and on chip revision v1.0. The rev3 image is built but has
