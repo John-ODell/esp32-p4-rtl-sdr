@@ -5,7 +5,7 @@
 #include "rds.h"
 
 #define MPX_RATE 480000
-#define PRE      4                            /* mixed samples summed in pairs of 4: 120 kS/s */
+#define PRE      4                            /* mixed samples summed in fours: 120 kS/s */
 #define RATE     24000                        /* after /4 and /5 */
 #define BIT_RATE 1187.5f
 #define HALF     10                           /* samples in half a bit (10.1) */

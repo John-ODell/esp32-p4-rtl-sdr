@@ -1,4 +1,4 @@
-/* WFM / NFM / AM demodulator: decimating FIR chain, discriminator or envelope, squelch. */
+/* WFM / NFM / AM demodulator: CIC then FIR decimation, discriminator or envelope, squelch. */
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
