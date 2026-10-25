@@ -104,8 +104,9 @@ SHA-256 and the chip revisions it boots on.
 
 ## First boot
 
-1. **Splash.** The splash is drawn in the saved look and plays a short tune-in animation. On first
-   boot it runs the 5-point touch calibration: tap the centre of each cross.
+1. **Splash.** The splash is drawn in the saved look and plays a short tune-in animation, or shows
+   your own picture (see "Your own boot picture"). On first boot it runs the 5-point touch
+   calibration: tap the centre of each cross.
    To redo it later, hold the screen during the splash.
 2. **Dongle.** It looks for the RTL-SDR on the USB-A ports. If nothing shows up, move the H3
    cap to the other pair of pins, then unplug the dongle and plug it back in.
@@ -168,6 +169,23 @@ python3 tools/mapgen/make_map.py --lat 52.31 --lon 4.76 --name SCHIPHOL --radius
 - Copy `MAP.BIN` to the root of a FAT32 card and put the card in the kit's slot.
 - The card is read the first time ADS-B opens, and only then.
 
+## Your own boot picture
+
+Put a `SPLASH.BMP` in the root of the card and it replaces the drawn name and band at boot. The
+status lines and the "hold screen to recalibrate" footer are drawn over it. The file must be:
+
+- 24- or 32-bit, uncompressed;
+- exactly the screen's size in the orientation the kit boots in: 480×320, or 320×480 in portrait.
+
+On a Mac, `sips` makes one from any picture (it takes the height first):
+
+```bash
+sips -z 320 480 -s format bmp picture.png --out /Volumes/SDCARD/SPLASH.BMP
+```
+
+A file of the wrong size or format is ignored, with a line in the serial log saying why. The card is
+read once, before the dongle starts, and is free again by the time the receiver needs the RAM.
+
 ## Logs on the SD card
 
 With a FAT32 card in the slot, each mode writes a CSV file to `LOGS/` on the card while it is open.
@@ -220,7 +238,8 @@ portrait (`portrait-*.png`).
 demodulator on synthesized FM and AM stations (with a neighbour and a stereo pilot) and checks the
 tone that comes out and the squelch. It also builds a broadcast station with RDS groups and
 checks the decoded ID, name and RadioText, with the station's clock up to 100 ppm off.
-`tools/agc_test` runs the AGC against a model of the R828D's gain steps, some of which do twice
+`tools/bmp_test` checks the BMP reader pixel by pixel on bottom-up, top-down, padded and 32-bit
+files, and that it refuses the ones it should. `tools/agc_test` runs the AGC against a model of the R828D's gain steps, some of which do twice
 what their labels say, with a band that jitters 3 dB from frame to frame, and checks that it settles
 near the top of the ADC without overloading or hunting.
 `tools/capture_log.py PORT SECONDS` resets the kit and prints its serial log. With `--attach` it
@@ -234,6 +253,7 @@ leaves the board running and reattaches if the USB serial port drops out, which 
 | `main/sdr.c` | dongle open, tune and gain; `read_async` into a 1 MB PSRAM IQ ring |
 | `main/agc.c` | the GAIN page's AGC: steps the tuner's gain from each frame's peak (no ESP-IDF calls) |
 | `main/spectrum.c` | Hann window, FFT of 1024 to 4096 points (set by zoom), averaged per frame |
+| `main/bmp.c` | reads `SPLASH.BMP` into the screen's 16-bit colour (no ESP-IDF calls) |
 | `main/view.c`, `main/panel.c` | all receiver and menu drawing, in five looks and both orientations (no ESP-IDF calls) |
 | `main/ui.c` | receiver loop, touch tracker, saved settings, stream recovery, mode switching |
 | `main/demod.c` | audio demodulator: CIC decimation to 480 kS/s, WFM, NFM or AM, 48 kHz out, squelch (no ESP-IDF calls) |
@@ -279,6 +299,9 @@ Core 0 runs the USB host, the IQ stream and the audio demodulator. Core 1 runs t
   with the band's peak at -8 to -11 dBFS and held there for a minute, and RDS stayed in sync with
   34% of its blocks bad. A fixed 14.4 dB gave about 50% bad and 19.7 dB overloaded. The R828D's own
   AGC, which 1.2.0 used, overloaded the dongle on such a station (#44).
+- Boot picture: a 480×320 24-bit `SPLASH.BMP` (461 KB) is read in 374 ms. A card without one costs
+  124 ms. Either way internal RAM is no lower afterwards, and the stream starts at 4.8 MB/s with
+  0 USB errors.
 - Internal RAM: 75 KB free on the receiver at boot. The first Wi-Fi or BLE visit costs 11 KB once
   (the C6 link stays up), leaving 64 KB. Later visits return to the same figure, and the low-water
   mark held at 43 KB. The receiver and ADS-B lines in the serial log report this every 5 s.
