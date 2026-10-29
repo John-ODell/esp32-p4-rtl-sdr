@@ -7,9 +7,6 @@ dist/
 tools/preview/preview
 tools/adsb_test/adsb_test
 __pycache__/
-# local skill links (absolute paths on the maintainer's machine)
-.claude/skills/
-.agents/skills/
 tools/demod_test/demod_test
 tools/bmp_test/bmp_test
 tools/agc_test/agc_test
